@@ -105,11 +105,11 @@ export class Atmosphere {
       depthTest: true,
       uniforms: {
         uSunDir: { value: this.sunDir },
-        uRayleigh: { value: 1.7 },
-        uTurbidity: { value: 2.2 },
-        uMie: { value: 0.0032 },
+        uRayleigh: { value: 1.3 },
+        uTurbidity: { value: 2.4 },
+        uMie: { value: 0.0035 },
         uMieG: { value: 0.82 },
-        uSkyExposure: { value: 3.6 },
+        uSkyExposure: { value: 0.42 },
         uTime: { value: 0 },
         uCloudCoverage: { value: 0.42 },
         uCloudDensity: { value: 0.55 },
@@ -130,7 +130,7 @@ export class Atmosphere {
     this.sun.shadow.camera.far = 1200;
     scene.add(this.sun);
     scene.add(this.sun.target);
-    this.setSun({ elevationDeg: 38, azimuthDeg: 218 });
+    this.setSun({ elevationDeg: 50, azimuthDeg: 205 });
   }
 
   /** Azimuth measured clockwise from north (-Z) towards east (+X). */

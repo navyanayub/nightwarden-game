@@ -19,7 +19,7 @@ import { hashN } from '../core/Random';
 import { MeshBuilder } from './MeshBuilder';
 import { materials, shared } from './Materials';
 import { generateCity, type BuildingSpec, type CityData, type Feature, type PropSpec, type RoadNode } from './CityLayout';
-import { buildDetail, buildFar, buildingColliders } from './BuildingGen';
+import { buildDetailSteps, buildFar, buildingColliders } from './BuildingGen';
 import { buildBlockGround, buildNode, buildPath, buildRoadSegment } from './RoadGen';
 import { buildFeature, type FeatureResult } from './Landmarks';
 import { PropSystem, gltfModel, lampModel, oldLampModel, parkLampModel, signalModel, bollardModel, type PropModel } from './Props';
@@ -65,6 +65,8 @@ export class World {
   private signalMats: THREE.MeshStandardMaterial[] = [];
   private lampMat!: THREE.MeshStandardMaterial;
   private buildQueue: Chunk[] = [];
+  /** Incremental detail build in progress (time-sliced across frames). */
+  private job: { chunk: Chunk; it: Iterator<void> } | null = null;
   private frame = 0;
   /** In-game clock in hours (Stage 2 adds a day/night cycle). */
   clockHours = 14.5;
@@ -99,7 +101,8 @@ export class World {
     this.water = new Water(heightTex, 0);
     this.root.add(this.water.mesh);
     this.lake = new Water(heightTex, LAKE.level, LAKE.rx * 3, 60);
-    this.lake.material.envMapIntensity = 0.8;
+    this.lake.material.envMapIntensity = 0.7;
+    this.lake.setFoam(0.3);
     this.lake.mesh.position.set(LAKE.x, LAKE.level, LAKE.z);
     this.lake.follow = () => undefined;
     this.root.add(this.lake.mesh);
@@ -287,19 +290,46 @@ export class World {
     }
   }
 
-  private buildChunkDetail(c: Chunk): void {
+  /** Generator that builds a chunk's detail one building (then one mesh) per step. */
+  private *detailJob(c: Chunk): Generator<void, void> {
     const mb = new MeshBuilder();
+    const props: PropSpec[] = [];
     for (const b of c.buildings) {
-      const res = buildDetail(mb, b);
-      for (const p of res.props) this.props.add(p, c.key);
+      props.push(...(yield* buildDetailSteps(mb, b)).props);
+      yield;
     }
-    c.detail = mb.build(materials.m, { name: `detail:${c.key}` });
+    const group = new THREE.Group();
+    group.name = `detail:${c.key}`;
+    for (const [key, buf] of mb.buffers) {
+      if (!buf.idx.length || !materials.m[key]) continue;
+      const mesh = new THREE.Mesh(buf.toGeometry(), materials.m[key]);
+      mesh.name = key;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.matrixAutoUpdate = false;
+      group.add(mesh);
+      yield;
+    }
+    for (const p of props) this.props.add(p, c.key);
+    c.detail = group;
+    c.detail.visible = false;
     this.root.add(c.detail);
     c.detailState = 'built';
     events.emit('world:chunkBuilt', { key: c.key });
   }
 
+  private buildChunkDetail(c: Chunk): void {
+    if (this.job?.chunk === c) {
+      while (!this.job.it.next().done);
+      this.job = null;
+      return;
+    }
+    const it = this.detailJob(c);
+    while (!it.next().done);
+  }
+
   private disposeChunkDetail(c: Chunk): void {
+    if (this.job?.chunk === c) this.job = null;
     if (!c.detail) return;
     this.root.remove(c.detail);
     c.detail.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
@@ -420,6 +450,10 @@ export class World {
 
   /** Synchronously build all detail chunks around a point (used by loading / tests). */
   prime(pos: THREE.Vector3): void {
+    if (this.job) {
+      while (!this.job.it.next().done);
+      this.job = null;
+    }
     for (const c of this.chunks.values()) {
       if (c.detailState === 'none' && c.buildings.length && this.chunkDist(c, pos) < settings.q.detailDistance) this.buildChunkDetail(c);
     }
@@ -463,13 +497,16 @@ export class World {
       }
       this.buildQueue.sort((a, b) => this.chunkDist(a, cam) - this.chunkDist(b, cam));
     }
-    if (this.buildQueue.length) {
-      const t0 = performance.now();
-      while (this.buildQueue.length && (performance.now() - t0 < q.buildBudgetMs || force)) {
-        const c = this.buildQueue.shift()!;
-        if (c.detailState === 'none') this.buildChunkDetail(c);
-        if (!force) break;
+    // Time-sliced detail building: always make some progress, stop when the budget is spent.
+    const t0 = performance.now();
+    while (performance.now() - t0 < q.buildBudgetMs) {
+      if (!this.job) {
+        const c = this.buildQueue.shift();
+        if (!c) break;
+        if (c.detailState !== 'none') continue;
+        this.job = { chunk: c, it: this.detailJob(c) };
       }
+      if (this.job.it.next().done) this.job = null;
     }
     this.props.update(cam, force);
     this.animate();
@@ -485,7 +522,7 @@ export class World {
 
   /** Number of chunks still waiting for detail around the camera. */
   get pendingDetail(): number {
-    return this.buildQueue.length;
+    return this.buildQueue.length + (this.job ? 1 : 0);
   }
 
   private animate(): void {

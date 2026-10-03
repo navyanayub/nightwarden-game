@@ -310,9 +310,9 @@ export function generateCity(): CityData {
   coast(ctx);
   // Spawn on Midtown avenue near the bridge road; three parked sedans nearby & elsewhere.
   const spawnNode = nodes.reduce((best, n) => (Math.hypot(n.x - avenueX, n.z - BRIDGE.z) < Math.hypot(best.x - avenueX, best.z - BRIDGE.z) ? n : best), nodes[0]);
-  data.spawn = { x: spawnNode.x - spawnNode.hx - 6, z: spawnNode.z + spawnNode.hz + 8, yaw: Math.PI * 0.25 };
+  data.spawn = { x: spawnNode.x + spawnNode.hx + 7, z: spawnNode.z + spawnNode.hz + 9, yaw: Math.PI * 0.9 };
   data.carSpots = [
-    { x: spawnNode.x + 4.2, z: spawnNode.z + spawnNode.hz + 22, yaw: Math.PI },
+    { x: spawnNode.x + 4.2, z: spawnNode.z + spawnNode.hz + 16, yaw: Math.PI },
     { x: -455, z: -20 + 34, yaw: Math.PI / 2 },
     { x: 300, z: 718, yaw: 0 },
   ];
@@ -533,10 +533,12 @@ function fillBlock(ctx: Ctx, b: Block): void {
         break;
       }
       const n = W > 90 ? 2 : 1;
+      let maxWd = 0;
       for (let i = 0; i < n; i++) {
         const lx0 = inner.minX + (W / n) * i + 3;
         const lw = W / n - 6;
         const wd = Math.min(D - 10, rng.range(26, 40));
+        maxWd = Math.max(maxWd, wd);
         ctx.building({
           style: 'warehouse',
           cx: lx0 + lw / 2,
@@ -557,10 +559,38 @@ function fillBlock(ctx: Ctx, b: Block): void {
           tiers: [],
           district: 'harbour',
         });
-        if (D - wd > 20) {
-          for (let k = 0; k < 4; k++) ctx.prop(rng.chance(0.5) ? 'crate' : 'barrel', lx0 + rng.range(3, lw - 3), inner.maxZ - rng.range(3, 10), rng.range(0, 6));
-        }
       }
+      // Yard behind the sheds: container stacks, crates and a harbour office.
+      const yard = { minX: inner.minX, maxX: inner.maxX, minZ: inner.minZ + 4 + maxWd + 8, maxZ: inner.maxZ };
+      if (yard.maxZ - yard.minZ > 16) {
+        const officeW = Math.min(22, W * 0.3);
+        if (yard.maxZ - yard.minZ > 22 && rng.chance(0.6)) {
+          const of = rng.int(2, 4);
+          ctx.building({
+            style: 'brick',
+            cx: yard.maxX - officeW / 2 - 2,
+            cz: yard.maxZ - 8,
+            w: officeW,
+            d: 13,
+            floorH: 3.6,
+            floors: of,
+            height: 3.6 * 1.18 + (of - 1) * 3.6,
+            seed: rng.int(0, 1e9),
+            front: 's',
+            party: [],
+            roof: 'flat',
+            wall: rng.pick(['brick_red', 'brick_brown']),
+            trim: 'concrete',
+            tint: [1, 1, 1],
+            shop: false,
+            tiers: [],
+            district: 'harbour',
+          });
+          yard.maxX -= officeW + 6;
+        }
+        containerYard(ctx, yard, rng);
+      }
+      for (let k = 0; k < 6; k++) ctx.prop(rng.chance(0.5) ? 'crate' : 'barrel', rng.range(inner.minX + 3, inner.maxX - 3), inner.minZ + 4 + maxWd + rng.range(1.5, 5), rng.range(0, 6));
       break;
     }
     case 'industrial': {
@@ -599,7 +629,31 @@ function fillBlock(ctx: Ctx, b: Block): void {
         ctx.feature('tank', tx, fz - fd / 4, 0, { r: Math.min(6, spareX / 2 - 2), h: rng.range(8, 14) });
         if (D > 70) ctx.feature('tank', tx, fz + fd / 4, 0, { r: Math.min(5, spareX / 2 - 2), h: rng.range(7, 12) });
       }
-      for (let k = 0; k < 5; k++) ctx.prop(rng.chance(0.5) ? 'barrel' : 'crate', rng.range(inner.minX + 3, inner.maxX - 3), inner.maxZ - rng.range(2, 6), rng.range(0, 6));
+      const backD = inner.maxZ - (fz + fd / 2) - 8;
+      if (backD > 14) {
+        const sd = Math.min(backD - 4, rng.range(16, 26));
+        ctx.building({
+          style: 'warehouse',
+          cx: inner.minX + 5 + (W - 10) * 0.35,
+          cz: inner.maxZ - 4 - sd / 2,
+          w: (W - 10) * 0.7,
+          d: sd,
+          floorH: 5,
+          floors: 2,
+          height: rng.range(8, 11),
+          seed: rng.int(0, 1e9),
+          front: 'n',
+          party: [],
+          roof: 'gable',
+          wall: 'corrugated',
+          trim: 'steel_dark',
+          tint: rng.pick([[0.55, 0.58, 0.6], [0.7, 0.66, 0.55], [0.5, 0.55, 0.62]] as [number, number, number][]),
+          shop: false,
+          tiers: [],
+          district: 'industrial',
+        });
+      }
+      for (let k = 0; k < 8; k++) ctx.prop(rng.chance(0.5) ? 'barrel' : 'crate', rng.range(inner.minX + 3, inner.maxX - 3), fz + fd / 2 + rng.range(2, 6), rng.range(0, 6));
       ctx.prop('utility_box', inner.minX + 1.5, inner.maxZ - 2, 0);
       break;
     }
@@ -664,7 +718,7 @@ function terraces(ctx: Ctx, b: Block, r: { minX: number; maxX: number; minZ: num
         d: bd,
         floorH,
         floors,
-        height: floors * floorH,
+        height: floorH * 1.18 + (floors - 1) * floorH,
         seed: rng.int(0, 1e9),
         front: row.side,
         party,

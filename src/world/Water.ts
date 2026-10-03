@@ -54,13 +54,13 @@ export class Water {
       pos.setZ(i, z * k);
     }
     geo.computeBoundingSphere();
-    this.material = new THREE.MeshStandardMaterial({ color: 0x0e3442, roughness: 0.08, metalness: 0.0, envMapIntensity: 0.75 });
+    this.material = new THREE.MeshStandardMaterial({ color: 0x0b2c38, roughness: 0.1, metalness: 0.0, envMapIntensity: 0.6 });
     this.uniforms = {
       uTime: shared.time,
       uHeight: { value: heightTex },
       uTerr: { value: new THREE.Vector4(TERRAIN.minX, TERRAIN.minZ, TERRAIN.maxX - TERRAIN.minX, TERRAIN.maxZ - TERRAIN.minZ) },
       uLevel: { value: level },
-      uDeep: { value: new THREE.Color(0.012, 0.075, 0.1) },
+      uDeep: { value: new THREE.Color(0.008, 0.05, 0.07) },
       uShallow: { value: new THREE.Color(0.06, 0.24, 0.24) },
       uFoam: { value: 1 },
     };
@@ -141,6 +141,10 @@ export class Water {
     this.mesh.receiveShadow = true;
     this.mesh.name = 'Ocean';
     this.mesh.frustumCulled = false;
+  }
+
+  setFoam(v: number): void {
+    this.uniforms.uFoam.value = v;
   }
 
   /** Keep the grid centred under the camera (snapped to avoid swimming). */

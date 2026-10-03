@@ -387,7 +387,7 @@ function clockTower(mb: MeshBuilder, f: Feature, res: FeatureResult): void {
     mb.quad('stone', Pt(sd, 0, v), Pt(sd, s, v), Pt(sd, s, 32), Pt(sd, 0, 32), { uvs: [[0, v], [s, v], [s, 32], [0, 32]] });
     // Door on the south face.
     if (sd.nz === 1) {
-      mb.quad('paint', Pt(sd, s / 2 - 1.1, 0, 0.02), Pt(sd, s / 2 + 1.1, 0, 0.02), Pt(sd, s / 2 + 1.1, 3.4, 0.02), Pt(sd, s / 2 - 1.1, 3.4, 0.02), { color: new THREE.Color(0.25, 0.15, 0.08) });
+      mb.quad('paint', Pt(sd, s / 2 - 1.1, 0, 0.02), Pt(sd, s / 2 + 1.1, 0, 0.02), Pt(sd, s / 2 + 1.1, 3.4, 0.02), Pt(sd, s / 2 - 1.1, 3.4, 0.02), { color: new THREE.Color(0.12, 0.07, 0.04) });
     }
   }
   // Corner pilasters and string courses.

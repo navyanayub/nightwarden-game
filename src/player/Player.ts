@@ -299,12 +299,12 @@ function dressCivilian(mat: THREE.MeshStandardMaterial): void {
           float torso = step(0.985, b.y) * step(b.y, 1.5) * step(ax, 0.235);
           float arms = step(1.24, b.y) * step(b.y, 1.62) * step(0.2, ax) * step(ax, 0.66);
           float jacket = max(torso, arms);
-          float shirt = torso * step(1.36, b.y) * step(ax, 0.075) * step(0.02, b.z);
+          float shirt = torso * step(1.38, b.y) * step(ax, (b.y - 1.38) * 0.55 + 0.012) * step(0.02, b.z);
           float collar = step(1.44, b.y) * step(b.y, 1.53) * step(ax, 0.1) * step(b.z, 0.02);
           vec3 jeans = vec3(0.07, 0.1, 0.17) * (0.82 + 0.3 * clNoise(b.xy * vec2(220.0, 40.0)));
           jeans *= 1.0 - 0.25 * smoothstep(0.55, 0.3, b.y) * (0.5 + 0.5 * clNoise(b.xy * 9.0));
           vec3 jkt = vec3(0.16, 0.2, 0.16) * (0.9 + 0.15 * clNoise(b.xy * 120.0));
-          vec3 tee = vec3(0.78, 0.76, 0.72);
+          vec3 tee = vec3(0.42, 0.42, 0.44);
           vec3 shoeC = mix(vec3(0.85, 0.84, 0.8), vec3(0.08), step(b.y, 0.03));
           vec3 c = diffuseColor.rgb;
           c = mix(c, jeans, legs);
@@ -312,7 +312,7 @@ function dressCivilian(mat: THREE.MeshStandardMaterial): void {
           c = mix(c, jkt, jacket);
           c = mix(c, tee, shirt);
           c = mix(c, jkt * 0.8, collar);
-          float zip = torso * step(ax, 0.006) * step(0.02, b.z) * (1.0 - step(1.36, b.y));
+          float zip = torso * step(ax, 0.005) * step(0.02, b.z) * (1.0 - step(1.38, b.y));
           c = mix(c, vec3(0.5), zip);
           c = mix(c, shoeC, shoe);
           clCloth = clamp(legs + jacket + shoe + belt, 0.0, 1.0);

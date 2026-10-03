@@ -166,6 +166,14 @@ export interface BuildResult {
 }
 
 export function buildDetail(mb: MeshBuilder, s: BuildingSpec): BuildResult {
+  const it = buildDetailSteps(mb, s);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  return r.value;
+}
+
+/** Incremental variant: yields between facade sides of large towers so streaming stays smooth. */
+export function* buildDetailSteps(mb: MeshBuilder, s: BuildingSpec): Generator<void, BuildResult> {
   const res: BuildResult = { props: [] };
   mb.pushTRS(s.cx, s.baseY, s.cz, 0);
   const rng = new Rng(s.seed);
@@ -179,10 +187,10 @@ export function buildDetail(mb: MeshBuilder, s: BuildingSpec): BuildResult {
       oldTown(mb, s, rng, tint, res);
       break;
     case 'office':
-      office(mb, s, rng, tint, res);
+      yield* office(mb, s, rng, tint, res);
       break;
     case 'glass':
-      glassTower(mb, s, rng, res);
+      yield* glassTower(mb, s, rng, res);
       break;
     case 'warehouse':
       warehouse(mb, s, rng, tint);
@@ -477,7 +485,7 @@ function waterTankAt(mb: MeshBuilder, x: number, z: number, y: number, rng: Rng)
 
 // ------------------------------------------------------------------ Midtown office (punched windows)
 
-function office(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, res: BuildResult): void {
+function* office(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, res: BuildResult): Generator<void, void> {
   const gh = 5.6;
   const bay = rng.range(3.0, 3.8);
   const winFrac = rng.range(0.55, 0.75);
@@ -498,9 +506,10 @@ function office(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, r
     d = t.d;
   }
   vols.push({ w, d, y0, y1: totalH });
-  vols.forEach((vol, vi) => {
+  for (const [vi, vol] of vols.entries()) {
     const fr = frames(vol.w, vol.d);
     for (const f of fr) {
+      yield;
       const n = Math.max(1, Math.round((f.len - 1.6) / bay));
       const margin = (f.len - n * bay) / 2;
       // Floors in this volume.
@@ -564,12 +573,8 @@ function office(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, r
       roofClutter(mb, { w: vol.w, d: vol.d, seed: s.seed }, rng, top + 0.05, res, false);
       if (s.height > 110 || rng.chance(0.25)) antenna(mb, rng.range(-pw / 4, pw / 4), rng.range(-pd / 4, pd / 4), top + 4.75, rng.range(10, 26));
       if (rng.chance(0.3) && s.height < 90) billboard(mb, vol.w, vol.d, top, rng);
-    } else {
-      // Terrace railing on setbacks.
-      const nextVol = vols[vi + 1];
-      void nextVol;
     }
-  });
+  }
 }
 
 function antenna(mb: MeshBuilder, x: number, z: number, y: number, h: number): void {
@@ -593,7 +598,7 @@ function billboard(mb: MeshBuilder, w: number, d: number, top: number, rng: Rng)
 
 // ------------------------------------------------------------------ Midtown glass tower
 
-function glassTower(mb: MeshBuilder, s: BuildingSpec, rng: Rng, res: BuildResult): void {
+function* glassTower(mb: MeshBuilder, s: BuildingSpec, rng: Rng, res: BuildResult): Generator<void, void> {
   const podH = rng.chance(0.7) ? 9.5 : 0;
   const pw = rng.range(1.5, 2.1);
   const spandrel = rng.range(0.9, 1.2);
@@ -628,9 +633,10 @@ function glassTower(mb: MeshBuilder, s: BuildingSpec, rng: Rng, res: BuildResult
     for (let i = 0; i < 4; i++) res.props.push({ type: 'planter', x: rng.range(-s.w / 2 + 1, s.w / 2 - 1), z: s.d / 2 - 1, y: podH, yaw: 0 });
   }
   const tintGlass = rng.next();
-  vols.forEach((vol, vi) => {
+  for (const [vi, vol] of vols.entries()) {
     const fr = frames(vol.w, vol.d);
     for (const f of fr) {
+      yield;
       const n = Math.max(2, Math.round(f.len / pw));
       const panel = f.len / n;
       let fl = 0;
@@ -669,7 +675,7 @@ function glassTower(mb: MeshBuilder, s: BuildingSpec, rng: Rng, res: BuildResult
       roofClutter(mb, { w: vol.w, d: vol.d, seed: s.seed }, rng, top + 0.02, res, false);
       if (s.height > 150 && rng.chance(0.6)) antenna(mb, 0, 0, top + crown - 1, rng.range(18, 40));
     }
-  });
+  }
 }
 
 // ------------------------------------------------------------------ Harbour warehouse

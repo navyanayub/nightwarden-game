@@ -40,7 +40,7 @@ function halfWidth(z: number): number {
 }
 
 function archBottom(z: number): number {
-  let y = 0.2 + 0.1 * smoothstep(L - 0.8, L, z) + 0.12 * smoothstep(L - 0.7, L, -z);
+  let y = 0.2 + 0.16 * smoothstep(L - 0.55, L, z) + 0.12 * smoothstep(L - 0.7, L, -z);
   for (const a of [SEDAN.frontAxle, SEDAN.rearAxle]) {
     const r = 0.405;
     const d = z - a;
@@ -55,7 +55,7 @@ function beltY(z: number): number {
 
 /** Top of the body (hood / deck) where there is no glasshouse. */
 function deckY(z: number): number {
-  if (z > 0.9) return 0.97 - 0.17 * smoothstep(0.9, L, z) - 0.06 * smoothstep(L - 0.25, L, z);
+  if (z > 0.9) return 0.97 - 0.2 * smoothstep(0.9, L, z) - 0.1 * smoothstep(L - 0.3, L, z);
   if (z < -1.3) return 1.03 - 0.04 * smoothstep(-1.3, -L + 0.2, z) - 0.2 * smoothstep(-L + 0.25, -L, z);
   return 1.0;
 }
@@ -169,21 +169,26 @@ export function buildSedan(color: THREE.Color): SedanParts {
   // ---------------------------------------------------------------- details
   const fz = L;
   const rz = -L;
-  // Grille + lower intake.
-  mb.box('car_black', -0.5, 0.38, fz - 0.06, 0.5, 0.6, fz + 0.012);
-  for (let k = 0; k < 6; k++) mb.box('car_chrome', -0.48, 0.4 + k * 0.035, fz, 0.48, 0.41 + k * 0.035, fz + 0.02);
-  mb.box('car_black', -0.62, 0.22, fz - 0.12, 0.62, 0.33, fz + 0.03);
-  // Headlights (slanted clusters).
+  // Grille (chrome surround + slats) and black lower lip.
+  mb.box('car_chrome', -0.46, 0.46, fz - 0.07, 0.46, 0.61, fz + 0.006);
+  mb.box('car_black', -0.43, 0.475, fz - 0.06, 0.43, 0.595, fz + 0.012);
+  for (let k = 0; k < 4; k++) mb.box('car_chrome', -0.41, 0.49 + k * 0.028, fz, 0.41, 0.497 + k * 0.028, fz + 0.02);
+  mb.box('car_black', -0.72, 0.33, fz - 0.16, 0.72, 0.37, fz + 0.025);
+  // Slim headlight clusters following the hood line, with LED daytime running strips.
   for (const s of [-1, 1]) {
-    const x0 = s * 0.56;
-    const x1 = s * 0.84;
-    mb.pushTRS((x0 + x1) / 2, 0.69, fz - 0.1, 0);
-    mb.box('car_chrome', -0.15, -0.06, -0.08, 0.15, 0.06, 0.1);
-    mb.box('car_headlight', -0.13, -0.045, 0.06, 0.13, 0.045, 0.11);
-    mb.box('car_drl', -0.14, -0.065, 0.085, 0.14, -0.05, 0.115);
+    mb.pushTRS(s * 0.66, 0.625, fz - 0.09, 0);
+    mb.pushTransform(new THREE.Matrix4().makeRotationX(-0.42).multiply(new THREE.Matrix4().makeRotationY(s * -0.12)));
+    mb.box('car_chrome', -0.17, -0.035, -0.12, 0.17, 0.035, 0.07);
+    mb.box('car_headlight', -0.155, -0.026, -0.1, 0.155, 0.026, 0.074);
+    mb.box('car_drl', -0.16, -0.045, -0.06, 0.16, -0.034, 0.072);
     mb.popTransform();
-    // Fog light.
-    mb.cylinder('car_headlight', s * 0.68, 0.27, fz - 0.02, 0.05, 0.05, 0.001, 12);
+    mb.popTransform();
+    // Fog lights in the bumper corners.
+    mb.pushTRS(s * 0.62, 0.41, fz - 0.03, 0);
+    mb.pushTransform(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+    mb.cylinder('car_headlight', 0, 0, 0, 0.04, 0.04, 0.035, 12);
+    mb.popTransform();
+    mb.popTransform();
   }
   // Taillights: full-width bar + corner clusters.
   mb.box('car_brake', -0.62, 0.86, rz - 0.035, 0.62, 0.9, rz + 0.06);
@@ -205,7 +210,7 @@ export function buildSedan(color: THREE.Color): SedanParts {
   const plate = signs().extraUV('plate');
   const plateQuad = (z: number, front: boolean) => {
     const x = 0.26;
-    const y0 = front ? 0.3 : 0.5;
+    const y0 = front ? 0.36 : 0.5;
     const y1 = y0 + 0.11;
     const zz = front ? z + 0.035 : z - 0.045;
     if (front) mb.quad('car_plate', [-x, y0, zz], [x, y0, zz], [x, y1, zz], [-x, y1, zz], { uvs: [[plate[0], plate[1]], [plate[2], plate[1]], [plate[2], plate[3]], [plate[0], plate[3]]] });

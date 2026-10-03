@@ -65,6 +65,8 @@ export class Input {
   throttle = 0;
   brake = 0;
   gamepadConnected = false;
+  /** Scripted input for tests/tools (overrides keyboard & gamepad axes). */
+  forced: { moveX?: number; moveY?: number; sprint?: boolean } | null = null;
   mouseSensitivity = 0.0022;
   invertY = false;
 
@@ -120,6 +122,7 @@ export class Input {
 
   /** Is the action currently held? */
   held(action: Action): boolean {
+    if (action === 'sprint' && this.forced?.sprint) return true;
     for (const k of KEY_BINDINGS[action]) if (this.down.has(k)) return true;
     const pads = PAD_BINDINGS[action];
     if (pads) for (const b of pads) if (this.padDown.has(b)) return true;
@@ -196,6 +199,10 @@ export class Input {
     this.moveY = Math.abs(my) > Math.abs(ky) ? my : ky;
     this.lookX = lx;
     this.lookY = ly;
+    if (this.forced) {
+      this.moveX = this.forced.moveX ?? this.moveX;
+      this.moveY = this.forced.moveY ?? this.moveY;
+    }
     this.throttle = Math.max(rt, this.held('forward') ? 1 : 0);
     this.brake = Math.max(lt, this.held('back') ? 1 : 0);
   }
@@ -203,6 +210,11 @@ export class Input {
   /** Clear per-frame edge state. Call at the end of each frame. */
   endFrame(): void {
     this.pressedKeys.clear();
+  }
+
+  /** Inject an edge-triggered action (tests/tools). */
+  trigger(action: Action): void {
+    this.latched.add(action);
   }
 
   clearLatched(): void {

@@ -2,7 +2,7 @@
  * Top-level game: owns the loop, renderer, physics, world, player, vehicles, camera and UI.
  */
 import * as THREE from 'three';
-import { Loop } from './Loop';
+import { FIXED_DT, Loop } from './Loop';
 import { Input } from './Input';
 import { events } from './EventBus';
 import { settings } from './Settings';
@@ -320,6 +320,24 @@ export class Game {
     const v = this.vehicles[i];
     if (!v || this.mode === 'drive') return;
     this.nearVehicle = v;
+    this.toggleVehicle();
+  }
+
+  /** Deterministically advance the simulation (tests): fixed steps without rendering. */
+  simulate(seconds: number): void {
+    const steps = Math.round(seconds / FIXED_DT);
+    for (let i = 0; i < steps; i++) {
+      this.input.update();
+      this.fixedUpdate(FIXED_DT);
+      this.loop.time += FIXED_DT;
+    }
+    this.update(FIXED_DT, 1);
+  }
+
+  exitVehicle(): void {
+    if (this.mode !== 'drive' || !this.current) return;
+    this.current.sim.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.current.sim.speed = 0;
     this.toggleVehicle();
   }
 

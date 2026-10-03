@@ -68,7 +68,8 @@ function inland(x: number, z: number): number {
   if (x > CITY_HALF + 200) return 3.0;
   let h = GROUND + hills(x, z);
   if (x > PARK.minX - 20 && z < PARK.maxZ + 20) {
-    h += 1.4 * fbm2(x / 90, z / 90, 2, 41) * smooth(PARK.minX, PARK.minX + 40, x) * smooth(PARK.maxZ, PARK.maxZ - 40, z);
+    // Gentle, strictly positive undulation so the ground never dips below the lake level.
+    h += 1.3 * (fbm2(x / 90, z / 90, 2, 41) * 0.5 + 0.5) * smooth(PARK.minX, PARK.minX + 40, x) * smooth(PARK.maxZ, PARK.maxZ - 40, z);
     h -= lakeCut(x, z);
   }
   return h;
@@ -183,7 +184,7 @@ export function terrainSplat(x: number, z: number, h: number, slope: number): [n
   if (h < 3.2 && nat > 0.2) sand = smooth(3.4, 1.4, h);
   if (x > CITY_HALF + 200 && h < 3.6) sand = Math.max(sand, smooth(3.6, 2.2, h));
   const lakeD = Math.hypot((x - LAKE.x) / LAKE.rx, (z - LAKE.z) / LAKE.rz);
-  if (lakeD < 1.3) sand = Math.max(sand, smooth(1.3, 1.05, lakeD) * 0.8);
+  if (lakeD < 1.18) sand = Math.max(sand, smooth(1.18, 1.0, lakeD) * 0.7);
   const rock = smooth(0.35, 0.7, slope);
   const grass = Math.max(0, 1 - sand - rock);
   return [grass, sand, rock];

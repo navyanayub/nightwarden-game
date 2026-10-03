@@ -45,7 +45,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 
   vec3 horizonDir = normalize(vec3(rd.x, max(rd.y, 0.0) * 0.5 + 0.07, rd.z));
   vec3 fogCol = skyRadiance(horizonDir) * uSkyExposure;
-  fogCol *= min(1.0, 2.6 / max(max(fogCol.r, max(fogCol.g, fogCol.b)), 1e-3));
+  fogCol *= min(1.0, 2.4 / max(max(fogCol.r, max(fogCol.g, fogCol.b)), 1e-3));
   float sunAmt = pow(max(dot(rd, normalize(uSunDir)), 0.0), 6.0);
   fogCol += uSunTint * sunAmt * 0.25;
   outputColor = vec4(mix(inputColor.rgb, fogCol, fogAmt) * uExposure, inputColor.a);
@@ -65,9 +65,9 @@ export class FogEffect extends Effect {
         ['uCamWorld', new THREE.Uniform(new THREE.Matrix4())],
         ['uCamPos', new THREE.Uniform(new THREE.Vector3())],
         ['uDensity', new THREE.Uniform(0.0006)],
-        ['uFalloff', new THREE.Uniform(0.016)],
+        ['uFalloff', new THREE.Uniform(0.02)],
         ['uBaseHeight', new THREE.Uniform(0)],
-        ['uMaxOpacity', new THREE.Uniform(0.92)],
+        ['uMaxOpacity', new THREE.Uniform(0.85)],
         ['uSunTint', new THREE.Uniform(new THREE.Color(1.0, 0.85, 0.6))],
         ['uSunDir', new THREE.Uniform(new THREE.Vector3(0, 1, 0))],
         ['uRayleigh', new THREE.Uniform(1.2)],

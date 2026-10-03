@@ -161,9 +161,11 @@ vec3 nwInterior(vec2 uv, vec3 viewPos, vec3 nV, vec4 win, out float blindMask) {
     col = mix(col, vec3(0.35, 0.24, 0.16), door * step(style, 1.5));
     if (style > 1.5) {
       // Shop shelving on the back wall.
-      float shelf = step(0.75, fract(q.y * 6.0)) * step(q.y, 0.75);
-      vec3 goods = vec3(ih(floor(q.x * 14.0) + seed), ih(floor(q.x * 14.0) + seed + 3.0), ih(floor(q.x * 14.0) + seed + 5.0));
-      col = mix(goods * 0.8 + 0.1, vec3(0.2), shelf);
+      float shelf = step(0.82, fract(q.y * 4.0)) * step(q.y, 0.78);
+      float bay = floor(q.x * 5.0);
+      vec3 goods = vec3(ih(bay + seed), ih(bay + seed + 3.0), ih(bay + seed + 5.0));
+      goods = mix(vec3(0.55, 0.5, 0.45), goods, 0.35);
+      col = mix(col, mix(goods, vec3(0.25, 0.2, 0.17), shelf), step(q.y, 0.78) * step(0.08, q.x) * step(q.x, 0.92));
     }
   } else if (t == tF.x) {
     col = wallCol * 0.9;
@@ -193,7 +195,7 @@ vec3 nwInterior(vec2 uv, vec3 viewPos, vec3 nV, vec4 win, out float blindMask) {
   }
   // Light: lamps when on, else daylight falling off with depth.
   float day = uDaylight * 0.55 * exp(-t * 0.28);
-  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.6 : 0.9);
+  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.1 : 0.9);
   vec3 lit = col * shade * (day + lamp);
   // Blinds / curtains drawn on the glass plane.
   float blind = ih(seed + 16.0) * (style > 1.5 ? 0.0 : 0.9);
@@ -317,7 +319,8 @@ function terrainMaterial(grass: PbrSet, sand: PbrSet, rock: PbrSet): THREE.MeshS
          vec4 sC = texture2D(tSand, vTerrUv / 9.0);
          vec4 rC = texture2D(tRock, vTerrUv / 4.0);
          vec3 w = vSplat / max(vSplat.r + vSplat.g + vSplat.b, 1e-3);
-         diffuseColor.rgb *= gC.rgb * w.r + sC.rgb * w.g + rC.rgb * w.b;`,
+         float gv = 0.85 + 0.3 * texture2D(map, vMapUv * 0.031).g;
+         diffuseColor.rgb *= gC.rgb * vec3(0.62, 0.88, 0.42) * gv * w.r + sC.rgb * vec3(0.95, 0.82, 0.64) * w.g + rC.rgb * vec3(0.55, 0.5, 0.44) * w.b;`,
       )
       .replace('#include <color_fragment>', '');
   };
@@ -385,8 +388,8 @@ export class MaterialLibrary {
     mk('plaza', 'herringbone_pavement', 2.6, { scale: 30, amount: 0.12 });
     mk('cobble', 'cobblestone_floor_08', 2.8, { scale: 25, amount: 0.12 });
     mk('kerb', 'rough_concrete', 1.6, null, { color: new THREE.Color(0.86, 0.85, 0.82) });
-    mk('grass', 'leafy_grass', 5, { scale: 18, amount: 0.18, rough: 0.05 });
-    mk('sand', 'coast_sand_01', 8, { scale: 30, amount: 0.1 });
+    mk('grass', 'leafy_grass', 5, { scale: 18, amount: 0.18, rough: 0.05 }, { color: new THREE.Color(0.62, 0.88, 0.42) });
+    mk('sand', 'coast_sand_01', 8, { scale: 30, amount: 0.1 }, { color: new THREE.Color(0.95, 0.82, 0.64) });
     mk('gravel', 'rough_concrete', 3, { scale: 12, amount: 0.25 }, { color: new THREE.Color(0.55, 0.5, 0.46) });
     // Facades
     mk('brick_red', 'red_brick_03', 2.3, { scale: 14, amount: 0.12, grime: 4 });
@@ -398,7 +401,10 @@ export class MaterialLibrary {
     mk('plaster', 'white_plaster_02', 3, { scale: 10, amount: 0.1, grime: 3 });
     mk('plaster_grey', 'plaster_grey_04', 3, { scale: 12, amount: 0.1, grime: 3 });
     mk('corrugated', 'corrugated_iron_02', 3, { scale: 18, amount: 0.15, grime: 3 });
-    mk('container', 'container_side', 6.1, null);
+    // Container: keep the ribbed normal/roughness but take colour from vertex tints (the source texture is green).
+    const cont = mk('container', 'container_side', 6.1, null);
+    cont.map = null;
+    cont.color.setRGB(0.9, 0.9, 0.9);
     mk('shutter', 'painted_metal_shutter', 3, null);
     mk('metal_plate', 'metal_plate', 2, null);
     mk('granite', 'granite_tile', 3.2, { scale: 20, amount: 0.06 });
@@ -438,7 +444,7 @@ export class MaterialLibrary {
     patchMacro(markY, { scale: 6, amount: 0.25 });
 
     mk('rough_wall', 'rough_concrete', 3, { scale: 12, amount: 0.2 }, { color: new THREE.Color(0.7, 0.69, 0.66) });
-    mk('hedge', 'leafy_grass', 1.2, { scale: 4, amount: 0.25 }, { color: new THREE.Color(0.55, 0.75, 0.45) });
+    mk('hedge', 'leafy_grass', 1.2, { scale: 4, amount: 0.25 }, { color: new THREE.Color(0.4, 0.62, 0.3) });
     std('water', { color: 0x1d3b45, roughness: 0.04, metalness: 0.2, vertexColors: false });
     m.picket = picketMaterial();
     m.signs = signs().material;

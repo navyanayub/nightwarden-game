@@ -16,7 +16,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070b; col
 /* Loading screen */
 .loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
   background: radial-gradient(ellipse at 50% 35%, #1b2636 0%, #0a0e15 55%, #040509 100%); transition: opacity 0.8s; z-index: 50; }
-.loading.done { opacity: 0; pointer-events: none; }
+#ui .loading.done { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity 0.8s, visibility 0s 0.8s; }
 .logo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .logo svg { width: 96px; height: 96px; filter: drop-shadow(0 0 18px rgba(201, 164, 92, 0.35)); }
 .logo h1 { margin: 0; font-size: 54px; letter-spacing: 0.32em; font-weight: 800; color: #f1ead8; text-indent: 0.32em; }

@@ -86,6 +86,7 @@ export class UI {
     this.toastEl = q('.toast');
 
     events.on('loading:progress', ({ progress, label }) => {
+      if (this.startBtn.classList.contains('show')) return;
       this.bar.style.width = `${Math.round(progress * 100)}%`;
       this.label.textContent = label;
     });
