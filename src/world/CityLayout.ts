@@ -311,10 +311,11 @@ export function generateCity(): CityData {
   // Spawn on Midtown avenue near the bridge road; three parked sedans nearby & elsewhere.
   const spawnNode = nodes.reduce((best, n) => (Math.hypot(n.x - avenueX, n.z - BRIDGE.z) < Math.hypot(best.x - avenueX, best.z - BRIDGE.z) ? n : best), nodes[0]);
   data.spawn = { x: spawnNode.x + spawnNode.hx + 7, z: spawnNode.z + spawnNode.hz + 9, yaw: Math.PI * 0.9 };
+  const sq = blocks.find((b) => b.kind === 'square')!;
   data.carSpots = [
     { x: spawnNode.x + 4.2, z: spawnNode.z + spawnNode.hz + 16, yaw: Math.PI },
-    { x: -455, z: -20 + 34, yaw: Math.PI / 2 },
-    { x: 300, z: 718, yaw: 0 },
+    { x: (sq.minX + sq.maxX) / 2 - 12, z: sq.maxZ - sq.sidewalk - 7, yaw: Math.PI / 2 },
+    { x: 300, z: 725.5, yaw: Math.PI / 2 },
   ];
   return data;
 }

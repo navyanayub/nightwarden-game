@@ -12,7 +12,7 @@ import { Renderer } from '../render/Renderer';
 import { World } from '../world/World';
 import { Player } from '../player/Player';
 import { CameraRig } from '../player/CameraRig';
-import { Vehicle } from '../vehicles/Vehicle';
+import { HeadlightRig, Vehicle } from '../vehicles/Vehicle';
 import { UI } from '../ui/UI';
 import { AudioManager } from '../audio/AudioManager';
 import { DISTRICT_NAMES, districtAt } from '../world/WorldConfig';
@@ -31,6 +31,7 @@ export class Game {
   player!: Player;
   rig!: CameraRig;
   vehicles: Vehicle[] = [];
+  headlights!: HeadlightRig;
   mode: Mode = 'foot';
   current: Vehicle | null = null;
   ready = false;
@@ -113,6 +114,7 @@ export class Game {
       this.renderer.scene.add(v.object);
       this.vehicles.push(v);
     });
+    this.headlights = new HeadlightRig(this.renderer.scene);
     // Debug camera from the URL (?cam=x,y,z,tx,ty,tz) for screenshots.
     const cam = new URLSearchParams(location.search).get('cam');
     if (cam) {
@@ -207,7 +209,9 @@ export class Game {
       }
     }
     for (const v of this.vehicles) v.update(dt, alpha);
+    this.headlights.update(this.current);
     this.player.update(dt, alpha);
+    this.rescueFromWater();
     if (this.current) {
       // Seat the driver.
       const seat = this.current.parts.seat;
@@ -345,6 +349,27 @@ export class Game {
   primeWorld(): number {
     this.world.prime(this.renderer.camera.position);
     return this.world.pendingDetail;
+  }
+
+  /** Respawn the player (or the driven car) if it ends up in the sea. */
+  private rescueFromWater(): void {
+    const sp = this.world.city.spawn;
+    if (this.mode === 'foot' && this.player.position.y < -1.5) {
+      this.player.teleport(sp.x, heightAt(sp.x, sp.z) + 0.3, sp.z, sp.yaw);
+      this.rig.snap(this.player.position.clone().setY(this.player.position.y + 1.6));
+      this.ui.toast('You were pulled out of the water');
+    }
+    for (const [i, v] of this.vehicles.entries()) {
+      if (v.sim.curPos.y > -2.5) continue;
+      const spot = this.world.city.carSpots[i];
+      if (v === this.current) this.exitVehicle();
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spot.yaw);
+      v.sim.chassis.setTranslation({ x: spot.x, y: heightAt(spot.x, spot.z) + 1.2, z: spot.z }, true);
+      v.sim.chassis.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+      v.sim.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      v.sim.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      this.ui.toast('Vehicle recovered from the water');
+    }
   }
 
   // ---------------------------------------------------------------- vehicles
