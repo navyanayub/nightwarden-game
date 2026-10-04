@@ -159,6 +159,8 @@ export class Crowd {
   private alarms: { x: number; z: number; r: number; kind: string }[] = [];
   /** Screams this frame (audio hooks). */
   screams: { x: number; z: number }[] = [];
+  /** Pedestrians struck by the player's car this frame (handed over to ragdoll actors). */
+  readonly struck: { look: Look; x: number; y: number; z: number; yaw: number; clip: ClipName; t: number; speed: number; carYaw: number; side: number }[] = [];
 
   constructor(
     city: CityData,
@@ -478,8 +480,9 @@ export class Crowd {
 
   // ---------------------------------------------------------------- update
 
-  update(dt: number, camera: THREE.Camera, player: THREE.Vector3, playerOnFoot: boolean, car: { x: number; z: number; speed: number; yaw: number; onPavement: boolean } | null, activity: number, rain: number, paused: boolean): void {
+  update(dt: number, camera: THREE.Camera, player: THREE.Vector3, playerOnFoot: boolean, car: { x: number; z: number; speed: number; yaw: number; onPavement: boolean; len?: number; width?: number } | null, activity: number, rain: number, paused: boolean): void {
     this.screams.length = 0;
+    this.struck.length = 0;
     this.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv);
     if (!paused) {
@@ -490,7 +493,7 @@ export class Crowd {
     this.render.update(this.figures, camera);
   }
 
-  private simulate(dt: number, player: THREE.Vector3, playerOnFoot: boolean, car: { x: number; z: number; speed: number; yaw: number; onPavement: boolean } | null, activity: number, rain: number, camera: THREE.Camera): void {
+  private simulate(dt: number, player: THREE.Vector3, playerOnFoot: boolean, car: { x: number; z: number; speed: number; yaw: number; onPavement: boolean; len?: number; width?: number } | null, activity: number, rain: number, camera: THREE.Camera): void {
     // Population.
     this.target = Math.round(this.maxPeds * activity * (1 - 0.35 * rain));
     this.spawnT -= dt;
@@ -547,7 +550,26 @@ export class Crowd {
         }
         p.lat = THREE.MathUtils.clamp(p.lat + (Math.random() - 0.5) * 0.8, -(this.rings[p.ring].sw / 2 - 0.4), this.rings[p.ring].sw / 2 - 0.4);
       }
-      // A car bearing down: dive aside.
+      // Struck by the player's car: hand over to a ragdoll actor.
+      if (car && Math.abs(car.speed) > 3.5 && p.state !== 'board') {
+        const fx = Math.sin(car.yaw);
+        const fz = Math.cos(car.yaw);
+        const dx = p.x - car.x;
+        const dz = p.z - car.z;
+        const along = (dx * fx + dz * fz) * Math.sign(car.speed);
+        const side = dx * fz - dz * fx;
+        const hl = (car.len ?? 4.6) / 2;
+        const hw = (car.width ?? 1.8) / 2;
+        if (along > -hl && along < hl + 0.35 && Math.abs(side) < hw + 0.3) {
+          if (p.bench >= 0) this.benches[p.bench].used = Math.max(0, this.benches[p.bench].used - 1);
+          this.struck.push({ look: p.look, x: p.vx, y: p.y, z: p.vz, yaw: p.yaw, clip: p.clip, t: p.clipT, speed: car.speed, carYaw: car.yaw, side });
+          this.screams.push({ x: p.x, z: p.z });
+          this.alarms.push({ x: p.x, z: p.z, r: 25, kind: 'crash' });
+          this.peds.splice(i, 1);
+          continue;
+        }
+      }
+      // A car bearing down: dive aside (unless it is too fast to react to).
       if (car && Math.abs(car.speed) > 4 && p.state !== 'flee') {
         const fx = Math.sin(car.yaw);
         const fz = Math.cos(car.yaw);
@@ -555,7 +577,8 @@ export class Crowd {
         const dz = p.z - car.z;
         const along = dx * fx + dz * fz;
         const side = dx * fz - dz * fx;
-        if (along > 0 && along < 9 + Math.abs(car.speed) * 0.6 && Math.abs(side) < 1.8) {
+        const react = Math.abs(car.speed) * 0.3 + 2.4;
+        if (along > react && along < 9 + Math.abs(car.speed) * 0.6 && Math.abs(side) < 1.8) {
           p.x += fz * Math.sign(side || 1) * 1.6;
           p.z -= fx * Math.sign(side || 1) * 1.6;
           this.flee(p, car.x, car.z, true);

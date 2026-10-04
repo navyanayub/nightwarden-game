@@ -67,44 +67,8 @@ const SKIN_MAIN = /* glsl */ `
   #endif
 `;
 
-interface PatchOpts {
-  blend: boolean;
-  clothes?: { heightScale: number };
-  hairColor?: boolean;
-  posOnly?: THREE.Vector3;
-  propColor?: boolean;
-}
-
-function patch(mat: THREE.Material, bones: THREE.Texture, o: PatchOpts, depth = false): void {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uBones = { value: bones };
-    if (o.blend) shader.defines = { ...(shader.defines ?? {}), NW_BLEND: '' };
-    let vs = shader.vertexShader.replace('#include <common>', `#include <common>\n${SKIN_GLSL}\nattribute vec4 aLook0;\nattribute vec4 aLook1;\nattribute vec4 aLook2;\nvarying vec3 vBind;\nvarying vec4 vLook0;\nvarying vec4 vLook1;\nvarying vec4 vLook2;\n${o.posOnly ? 'uniform vec3 uAnchor;' : ''}`);
-    const posExpr = o.posOnly ? `(position - uAnchor + (nwM * vec4(uAnchor, 1.0)).xyz)` : `(nwM * vec4(position, 1.0)).xyz`;
-    const nrmExpr = o.posOnly ? `normal` : `normalize(mat3(nwM) * normal)`;
-    if (!depth) {
-      vs = vs.replace('#include <beginnormal_vertex>', `${SKIN_MAIN}\nvec3 objectNormal = ${nrmExpr};\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3( tangent.xyz );\n#endif`);
-      vs = vs.replace('#include <begin_vertex>', `vec3 transformed = ${posExpr};\nvBind = position;\nvLook0 = aLook0;\nvLook1 = aLook1;\nvLook2 = aLook2;`);
-    } else {
-      vs = vs.replace('#include <begin_vertex>', `${SKIN_MAIN}\nvec3 transformed = ${posExpr};\nvBind = position;\nvLook0 = aLook0;\nvLook1 = aLook1;\nvLook2 = aLook2;`);
-    }
-    if (o.posOnly) shader.uniforms.uAnchor = { value: o.posOnly };
-    shader.vertexShader = vs;
-    let fs = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nvarying vec4 vLook0;\nvarying vec4 vLook1;\nvarying vec4 vLook2;\nfloat clCloth = 0.0;');
-    if (o.clothes && !depth) {
-      shader.uniforms.uHS = { value: o.clothes.heightScale };
-      fs = fs
-        .replace(
-          '#include <common>',
-          `#include <common>
-          uniform float uHS;
-          float clHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
-          float clNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-            return mix(mix(clHash(i), clHash(i + vec2(1, 0)), u.x), mix(clHash(i + vec2(0, 1)), clHash(i + vec2(1, 1)), u.x), u.y); }`,
-        )
-        .replace(
-          '#include <map_fragment>',
-          `#include <map_fragment>
+/** Clothing painted from bind-space position (vBind) and look vectors vLook0..2 (shared with actors). */
+export const CLOTHES_FRAG = /* glsl */ `#include <map_fragment>
           {
             vec3 b = vBind / uHS;
             float ax = abs(b.x);
@@ -155,8 +119,47 @@ function patch(mat: THREE.Material, bones: THREE.Texture, o: PatchOpts, depth = 
             c = mix(c, shoeC, shoe);
             clCloth = clamp(legs * (1.0 - bareLeg) + top + shoe + belt + coat, 0.0, 1.0);
             diffuseColor.rgb = c;
-          }`,
+          }`;
+
+/** Noise helpers the clothing code needs (with uniform uHS = height scale). */
+export const CLOTHES_COMMON = /* glsl */ `
+uniform float uHS;
+float clHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+float clNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(clHash(i), clHash(i + vec2(1, 0)), u.x), mix(clHash(i + vec2(0, 1)), clHash(i + vec2(1, 1)), u.x), u.y); }`;
+
+interface PatchOpts {
+  blend: boolean;
+  clothes?: { heightScale: number };
+  hairColor?: boolean;
+  posOnly?: THREE.Vector3;
+  propColor?: boolean;
+}
+
+function patch(mat: THREE.Material, bones: THREE.Texture, o: PatchOpts, depth = false): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uBones = { value: bones };
+    if (o.blend) shader.defines = { ...(shader.defines ?? {}), NW_BLEND: '' };
+    let vs = shader.vertexShader.replace('#include <common>', `#include <common>\n${SKIN_GLSL}\nattribute vec4 aLook0;\nattribute vec4 aLook1;\nattribute vec4 aLook2;\nvarying vec3 vBind;\nvarying vec4 vLook0;\nvarying vec4 vLook1;\nvarying vec4 vLook2;\n${o.posOnly ? 'uniform vec3 uAnchor;' : ''}`);
+    const posExpr = o.posOnly ? `(position - uAnchor + (nwM * vec4(uAnchor, 1.0)).xyz)` : `(nwM * vec4(position, 1.0)).xyz`;
+    const nrmExpr = o.posOnly ? `normal` : `normalize(mat3(nwM) * normal)`;
+    if (!depth) {
+      vs = vs.replace('#include <beginnormal_vertex>', `${SKIN_MAIN}\nvec3 objectNormal = ${nrmExpr};\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3( tangent.xyz );\n#endif`);
+      vs = vs.replace('#include <begin_vertex>', `vec3 transformed = ${posExpr};\nvBind = position;\nvLook0 = aLook0;\nvLook1 = aLook1;\nvLook2 = aLook2;`);
+    } else {
+      vs = vs.replace('#include <begin_vertex>', `${SKIN_MAIN}\nvec3 transformed = ${posExpr};\nvBind = position;\nvLook0 = aLook0;\nvLook1 = aLook1;\nvLook2 = aLook2;`);
+    }
+    if (o.posOnly) shader.uniforms.uAnchor = { value: o.posOnly };
+    shader.vertexShader = vs;
+    let fs = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vBind;\nvarying vec4 vLook0;\nvarying vec4 vLook1;\nvarying vec4 vLook2;\nfloat clCloth = 0.0;');
+    if (o.clothes && !depth) {
+      shader.uniforms.uHS = { value: o.clothes.heightScale };
+      fs = fs
+        .replace(
+          '#include <common>',
+          `#include <common>\n${CLOTHES_COMMON}`,
         )
+        .replace('#include <map_fragment>', CLOTHES_FRAG)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.82, clCloth);')
         .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize(mix(normal, normalize(vNormal), clCloth * 0.85));');
     }

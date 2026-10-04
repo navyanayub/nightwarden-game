@@ -10,11 +10,13 @@ const LOGO = `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3 L56 12 
 <path d="M40 16 a14 14 0 1 0 6 22 a11 11 0 1 1 -6 -22z" fill="#c9a45c"/><rect x="21" y="30" width="6" height="20" fill="#e8e2d2"/><path d="M19 30 L24 22 L29 30Z" fill="#e8e2d2"/></svg>`;
 
 const CONTROLS: [string, [string, string][]][] = [
-  ['On foot', [['Move', 'W A S D'], ['Look', 'Mouse'], ['Sprint', 'Shift'], ['Jump', 'Space'], ['Enter / take a car', 'E']]],
+  ['On foot', [['Move', 'W A S D'], ['Look', 'Mouse'], ['Sprint', 'Shift'], ['Jump / vault / grab a ledge', 'Space'], ['Enter / take a car', 'E'], ['Civilian ⇄ Nightwarden', 'V']]],
+  ['Traversal', [['Vault low obstacles', 'Run into them'], ['Ledge: shimmy / climb / drop', 'A D / W or Space / S'], ['Grapple to a roof edge', 'G or Right mouse'], ['Glide (in the air)', 'Hold Space'], ['Glide: dive / pull up / turn', 'W / S / A D'], ['Dive-bomb', 'Dive steeply onto enemies']]],
+  ['Combat', [['Strike (aim with move keys)', 'Left mouse'], ['Counter (on the ⚡ warning)', 'Q'], ['Dodge / roll (red warning)', 'Space'], ['Cape stun', 'C'], ['Finisher (combo 5+, stunned foe)', 'F'], ['Gadget wheel (hold)', 'Tab'], ['Pick gadget', '1 / 2 / 3'], ['Use gadget', 'R']]],
   ['Driving', [['Accelerate / brake / reverse', 'W / S'], ['Steer', 'A / D'], ['Handbrake (drift)', 'Space'], ['Horn', 'Q'], ['Headlights', 'L'], ['Exit vehicle', 'E']]],
   ['World', [['Fast-forward time (hold)', 'T'], ['Cycle weather', 'Y'], ['City map', 'M'], ['Test gunshot (debug)', 'F6']]],
   ['General', [['Controls panel', 'H'], ['Pause / settings', 'Esc'], ['Performance overlay', 'F3'], ['Camera zoom', 'Mouse wheel']]],
-  ['Gamepad', [['Move / steer', 'Left stick'], ['Look', 'Right stick'], ['Throttle / brake', 'RT / LT'], ['Jump / handbrake', 'A'], ['Enter / exit', 'Y'], ['Horn / map', 'D-pad down / right'], ['Fast-forward time', 'D-pad left'], ['Pause', 'Start']]],
+  ['Gamepad', [['Move / steer', 'Left stick'], ['Look', 'Right stick'], ['Throttle / brake', 'RT / LT'], ['Jump / handbrake / glide', 'A'], ['Strike / counter / cape', 'X / Y / B'], ['Grapple / gadgets / use', 'LB / LT / RT'], ['Enter / exit', 'Y'], ['Horn / map', 'D-pad down / right'], ['Fast-forward time', 'D-pad left'], ['Pause', 'Start']]],
 ];
 
 const WEATHER_ICONS: Record<string, string> = {
@@ -55,6 +57,18 @@ export class UI {
   onStart: () => void = () => undefined;
   onVolume: (key: 'master' | 'music' | 'effects', v: number) => void = () => undefined;
   onDayLength: (minutes: number) => void = () => undefined;
+  private vitHp!: HTMLElement;
+  private vitAr!: HTMLElement;
+  private vitMode!: HTMLElement;
+  private comboEl!: HTMLElement;
+  private comboN!: HTMLElement;
+  private gadgetEl!: HTMLElement;
+  private wheel!: HTMLElement;
+  private iconsEl!: HTMLElement;
+  private iconPool: HTMLElement[] = [];
+  private reticle!: HTMLElement;
+  private aimEl!: HTMLElement;
+  private koEl!: HTMLElement;
 
   constructor() {
     this.root = document.getElementById('ui')!;
@@ -64,6 +78,14 @@ export class UI {
       <div class="hud-hint">H — controls &nbsp;·&nbsp; M — map &nbsp;·&nbsp; Esc — pause</div>
       <div class="hud-clock"><svg viewBox="0 0 32 32" class="wicon"></svg><div><div class="time">--:--</div><div class="wname"></div></div></div>
       <div class="hud-prompt"></div>
+      <div class="hud-vitals"><div class="vbar hp"><div></div></div><div class="vbar ar"><div></div></div><span class="vmode">Civilian</span></div>
+      <div class="hud-combo"><div class="n">0</div><div class="lbl">COMBO</div><div class="fin">FINISHER READY <span class="key">F</span></div></div>
+      <div class="hud-gadget"><span class="key">R</span> <span class="gname">Smoke pellet</span> <small>Tab — gadgets</small></div>
+      <div class="hud-wheel"><div class="sector s0">Smoke pellet<small>1</small></div><div class="sector s1">Stun darts<small>2</small></div><div class="sector s2">Disarm grapple<small>3</small></div><div class="hub">GADGETS</div></div>
+      <div class="hud-icons"></div>
+      <div class="hud-reticle"></div>
+      <div class="hud-aim"></div>
+      <div class="hud-ko">KNOCKED DOWN</div>
       <div class="speedo">
         <svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="86" fill="rgba(8,12,20,0.72)" stroke="rgba(201,164,92,0.35)" stroke-width="2"/>
         <path d="${arcPath(0, 1)}" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="9" stroke-linecap="round"/>
@@ -87,6 +109,9 @@ export class UI {
         <h3 style="margin-top:22px">Day length</h3>
         <div class="presets daylen">${[12, 24, 48, 96].map((m) => `<button data-day="${m}">${m} min</button>`).join('')}</div>
         <div class="note">One game day lasts this many real minutes. Hold T to fast-forward, press Y to change the weather.</div>
+        <h3 style="margin-top:22px">Gameplay</h3>
+        <div class="presets gore"><button data-gore="0">Gore off</button><button data-gore="1">Gore on</button></div>
+        <div class="note">Gore is off by default. When on, only extreme impacts (explosions, high-speed vehicle hits) can detach limbs — cleanly sealed, no blood.</div>
       </div></div>
       <div class="overlay controls interactive"><div class="panel"><h3>Controls</h3><div class="controls-grid">
         ${CONTROLS.map(([h, rows]) => `<h4>${h}</h4>${rows.map(([a, k]) => `<div><span>${a}</span><span>${k}</span></div>`).join('')}`).join('')}
@@ -95,7 +120,7 @@ export class UI {
         <div class="logo">${LOGO}<h1>NIGHTWARDEN</h1><h2>PORT VELLMOOR</h2></div>
         <div class="bar"><div></div></div><div class="label">Initialising</div>
         <button class="start">CLICK TO PLAY</button>
-        <div class="tip">Stage 2 — a living city: traffic, crowds, day and night, weather.</div>
+        <div class="tip">Stage 3 — the vigilante: press V to suit up, H for controls.</div>
       </div>`;
     const q = <T extends Element = HTMLElement>(s: string) => this.root.querySelector(s) as T;
     this.loading = q('.loading');
@@ -115,6 +140,24 @@ export class UI {
     this.clockEl = q('.hud-clock .time');
     this.wIcon = q<SVGElement>('.hud-clock .wicon');
     this.wName = q('.hud-clock .wname');
+    this.vitHp = q('.hud-vitals .hp > div');
+    this.vitAr = q('.hud-vitals .ar > div');
+    this.vitMode = q('.hud-vitals .vmode');
+    this.comboEl = q('.hud-combo');
+    this.comboN = q('.hud-combo .n');
+    this.gadgetEl = q('.hud-gadget');
+    this.wheel = q('.hud-wheel');
+    this.iconsEl = q('.hud-icons');
+    this.reticle = q('.hud-reticle');
+    this.aimEl = q('.hud-aim');
+    this.koEl = q('.hud-ko');
+    this.pause.querySelectorAll<HTMLButtonElement>('button[data-gore]').forEach((b) =>
+      b.addEventListener('click', () => {
+        settings.setGore(b.dataset.gore === '1');
+        this.refreshGore();
+      }),
+    );
+    this.refreshGore();
     this.pause.querySelectorAll<HTMLInputElement>('input[data-vol]').forEach((inp) =>
       inp.addEventListener('input', () => this.onVolume(inp.dataset.vol as 'master' | 'music' | 'effects', Number(inp.value))),
     );
@@ -146,6 +189,83 @@ export class UI {
       }),
     );
     this.refreshPresets();
+  }
+
+  private refreshGore(): void {
+    this.pause.querySelectorAll<HTMLButtonElement>('button[data-gore]').forEach((b) => b.classList.toggle('active', (b.dataset.gore === '1') === settings.gore));
+  }
+
+  /** Health / armour bars and the identity label. */
+  setVitals(show: boolean, hp: number, ar: number, hero: boolean): void {
+    const root = this.vitHp.parentElement!.parentElement!;
+    root.classList.toggle('show', show);
+    if (!show) return;
+    this.vitHp.style.width = `${Math.round(hp * 100)}%`;
+    this.vitAr.style.width = `${Math.round(ar * 100)}%`;
+    root.classList.toggle('low', hp < 0.3);
+    const label = hero ? 'Nightwarden' : 'Civilian';
+    if (this.vitMode.textContent !== label) this.vitMode.textContent = label;
+  }
+
+  setCombo(n: number, finisher: boolean): void {
+    this.comboEl.classList.toggle('show', n >= 2);
+    this.comboEl.classList.toggle('ready', finisher);
+    const t = `×${n}`;
+    if (this.comboN.textContent !== t) {
+      this.comboN.textContent = t;
+      this.comboEl.classList.remove('pop');
+      void this.comboEl.offsetWidth;
+      this.comboEl.classList.add('pop');
+    }
+  }
+
+  setGadget(show: boolean, name: string, wheelOpen: boolean, idx: number): void {
+    this.gadgetEl.classList.toggle('show', show && !wheelOpen);
+    const g = this.gadgetEl.querySelector('.gname')!;
+    if (g.textContent !== name) g.textContent = name;
+    this.wheel.classList.toggle('show', wheelOpen);
+    this.wheel.querySelectorAll('.sector').forEach((s, i) => s.classList.toggle('active', i === idx));
+  }
+
+  /** Screen-space icons over enemies (warnings, awareness). */
+  setIcons(list: { x: number; y: number; kind: string }[]): void {
+    while (this.iconPool.length < list.length) {
+      const e = document.createElement('div');
+      e.className = 'eicon';
+      this.iconsEl.appendChild(e);
+      this.iconPool.push(e);
+    }
+    const glyph: Record<string, string> = { warn: '⚡', danger: '!', alert: '!', sus: '?', stun: '✦' };
+    this.iconPool.forEach((e, i) => {
+      const it = list[i];
+      if (!it) {
+        e.style.display = 'none';
+        return;
+      }
+      e.style.display = 'block';
+      e.style.transform = `translate(${it.x.toFixed(0)}px, ${it.y.toFixed(0)}px)`;
+      if (e.dataset.kind !== it.kind) {
+        e.dataset.kind = it.kind;
+        e.className = `eicon ${it.kind}`;
+        e.textContent = glyph[it.kind] ?? '';
+      }
+    });
+  }
+
+  /** Grapple target reticle (null hides it). */
+  setReticle(p: { x: number; y: number } | null): void {
+    this.reticle.classList.toggle('show', !!p);
+    if (p) this.reticle.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px)`;
+  }
+
+  /** Gadget aim marker on a thug. */
+  setAim(p: { x: number; y: number } | null): void {
+    this.aimEl.classList.toggle('show', !!p);
+    if (p) this.aimEl.style.transform = `translate(${p.x.toFixed(0)}px, ${p.y.toFixed(0)}px)`;
+  }
+
+  setKnockedOut(on: boolean): void {
+    this.koEl.classList.toggle('show', on);
   }
 
   private refreshPresets(): void {

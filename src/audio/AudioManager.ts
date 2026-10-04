@@ -127,6 +127,94 @@ export class AudioManager {
       if (a.kind === 'crash') this.crash(a.x, a.z);
       if (a.kind === 'gunshot') this.gunshot(a.x, a.z);
     });
+    // Stage 3: fights, traversal and gadgets.
+    events.on('combat:hit', (h) => this.thump(h.x, h.y, h.z, h.strength, !!h.blocked));
+    events.on('combat:ko', (k) => this.thump(k.x, 0.6, k.z, 1, false));
+    events.on('player:land', (l) => {
+      if (l.speed > 7 || l.dive) this.thump(l.x, l.y, l.z, l.dive ? 1.4 : Math.min(1, l.speed / 18), false);
+    });
+    events.on('player:grapple', (g) => this.zip(g.x, g.y, g.z));
+    events.on('combat:gadget', (g) => this.gadget(g.kind, g.x, g.y, g.z));
+  }
+
+  /** Body impact: a pitched-down sine thump plus a short noise slap (metal clank if blocked). */
+  private thump(x: number, y: number, z: number, strength: number, blocked: boolean): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const p = this.positional(x, y, z, 6);
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150 + strength * 40, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.16);
+    g.gain.setValueAtTime(0.9 * Math.min(1.4, 0.4 + strength), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g).connect(p);
+    o.start(t);
+    o.stop(t + 0.25);
+    this.burst(p, 0.45 + strength * 0.35, 1800 + strength * 1500, 0.07);
+    if (blocked) this.sample(`impactPlate_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.7, 1.4);
+    else if (strength > 0.9) this.sample(`impactPlate_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.25, 0.5);
+  }
+
+  /** Grapple: line whine + whoosh. */
+  private zip(x: number, y: number, z: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(900, t);
+    o.frequency.exponentialRampToValueAtTime(2400, t + 0.18);
+    g.gain.setValueAtTime(0.06, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.3);
+    this.burst(this.sfx, 0.35, 2500, 0.45);
+    void x;
+    void y;
+    void z;
+  }
+
+  private gadget(kind: 'smoke' | 'dart' | 'disarm', x: number, y: number, z: number): void {
+    if (!this.ctx) return;
+    const p = this.positional(x, y, z, 6);
+    if (kind === 'smoke') {
+      this.burst(p, 0.8, 600, 0.12);
+      this.burst(p, 0.5, 4000, 1.6, 0.05);
+    } else if (kind === 'dart') {
+      this.burst(this.sfx, 0.4, 5000, 0.08);
+    } else {
+      this.burst(this.sfx, 0.4, 2600, 0.3);
+      this.sample(`impactMetal_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.4, 1.6, 0.25);
+    }
+  }
+
+  private rushNode: { src: AudioBufferSourceNode; gain: GainNode; filt: BiquadFilterNode } | null = null;
+
+  /** Air rush while gliding / zipping / falling fast (0..1). */
+  setRush(level: number): void {
+    if (!this.ctx) return;
+    if (!this.rushNode) {
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise.white;
+      src.loop = true;
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'bandpass';
+      filt.Q.value = 0.7;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(filt).connect(gain).connect(this.sfx);
+      src.start();
+      this.rushNode = { src, gain, filt };
+    }
+    const t = this.ctx.currentTime;
+    this.rushNode.gain.gain.setTargetAtTime(Math.min(1, level) * 0.32, t, 0.2);
+    this.rushNode.filt.frequency.setTargetAtTime(300 + level * 1400, t, 0.2);
   }
 
   get ready(): boolean {

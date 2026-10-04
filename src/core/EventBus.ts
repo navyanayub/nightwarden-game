@@ -22,6 +22,17 @@ export interface GameEvents {
   'world:alarm': { x: number; z: number; radius: number; kind: 'gunshot' | 'crash' | 'pavement' };
   'traffic:horn': { x: number; z: number };
   'player:hijack': { x: number; z: number };
+  // Stage 3: the vigilante.
+  'player:hero': { on: boolean };
+  /** Landing impact (m/s); `dive` = a dive-bomb landing from a glide. */
+  'player:land': { x: number; y: number; z: number; speed: number; dive: boolean };
+  'player:grapple': { x: number; y: number; z: number };
+  'player:hurt': { amount: number; health: number };
+  'player:ko': void;
+  /** A melee impact (for audio): strength 0..1. */
+  'combat:hit': { x: number; y: number; z: number; strength: number; blocked?: boolean };
+  'combat:ko': { x: number; z: number; last: boolean };
+  'combat:gadget': { kind: 'smoke' | 'dart' | 'disarm'; x: number; y: number; z: number };
 }
 
 type Handler<T> = (payload: T) => void;

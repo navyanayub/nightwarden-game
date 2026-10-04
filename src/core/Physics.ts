@@ -12,14 +12,23 @@ export const G_WORLD = 0x0001;
 export const G_PLAYER = 0x0002;
 export const G_VEHICLE = 0x0004;
 export const G_PROP = 0x0008;
+/** Ragdoll limbs (dynamic bodies). */
+export const G_RAGDOLL = 0x0010;
+/** Enemy capsules (kinematic, moved by a character controller). */
+export const G_ENEMY = 0x0020;
 
 /** Pack Rapier interaction groups (membership << 16 | filter). */
 export const groups = (membership: number, filter: number): number => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 export const GROUPS_WORLD = groups(G_WORLD, 0xffff);
-export const GROUPS_PROP = groups(G_PROP, G_PLAYER | G_VEHICLE);
+export const GROUPS_PROP = groups(G_PROP, G_PLAYER | G_VEHICLE | G_RAGDOLL | G_ENEMY);
 export const GROUPS_PLAYER = groups(G_PLAYER, G_WORLD | G_VEHICLE | G_PROP);
-export const GROUPS_VEHICLE = groups(G_VEHICLE, G_WORLD | G_VEHICLE | G_PLAYER | G_PROP);
+export const GROUPS_VEHICLE = groups(G_VEHICLE, G_WORLD | G_VEHICLE | G_PLAYER | G_PROP | G_RAGDOLL);
+// Ragdolls do not collide with each other (no self-collision between overlapping limbs).
+export const GROUPS_RAGDOLL = groups(G_RAGDOLL, G_WORLD | G_VEHICLE | G_PROP);
+export const GROUPS_ENEMY = groups(G_ENEMY, G_WORLD | G_PROP);
+/** Traversal probes (ledges, vaults, grapple targets): solid world + props. */
+export const GROUPS_PROBE = groups(0xffff, G_WORLD | G_PROP);
 /** Camera rays only hit solid world geometry. */
 export const GROUPS_CAMERA_RAY = groups(0xffff, G_WORLD);
 /** Wheel suspension rays hit world + props, never the car itself. */
@@ -73,6 +82,16 @@ export class Physics {
     this.tmpRay.dir = { x: dir.x, y: dir.y, z: dir.z };
     const hit = this.world.castRay(this.tmpRay, maxDist, true, undefined, collisionGroups, exclude);
     return hit ? hit.timeOfImpact : -1;
+  }
+
+  /** Ray cast returning distance and surface normal (or null). */
+  rayHit(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, collisionGroups = GROUPS_CAMERA_RAY): { dist: number; normal: THREE.Vector3; point: THREE.Vector3 } | null {
+    this.tmpRay.origin = { x: origin.x, y: origin.y, z: origin.z };
+    this.tmpRay.dir = { x: dir.x, y: dir.y, z: dir.z };
+    const hit = this.world.castRayAndGetNormal(this.tmpRay, maxDist, true, undefined, collisionGroups);
+    if (!hit) return null;
+    const d = hit.timeOfImpact;
+    return { dist: d, normal: new THREE.Vector3(hit.normal.x, hit.normal.y, hit.normal.z), point: origin.clone().addScaledVector(dir, d) };
   }
 
   /** Sphere sweep for camera collision; returns safe distance along dir. */

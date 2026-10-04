@@ -148,6 +148,9 @@ export class Minimap {
     g.setLineDash([]);
   }
 
+  /** Points of interest: gang hangouts (labelled on the full map) and hostile thugs. */
+  markers: { x: number; z: number; kind: 'hangout' | 'thug'; label?: string }[] = [];
+
   /** Draw the rotating HUD minimap. yaw = camera heading (atan2 convention), heading = player facing. */
   update(x: number, z: number, camYaw: number, heading: number, zoom: number, visible: boolean): void {
     this.wrap.style.display = visible && !this.open ? 'block' : 'none';
@@ -168,6 +171,18 @@ export class Minimap {
     g.scale(k, k);
     const [mx, mz] = this.toMap(x, z);
     g.drawImage(this.map, -mx, -mz);
+    for (const m of this.markers) {
+      const [ax, az] = this.toMap(m.x, m.z);
+      const r = (m.kind === 'hangout' ? 6 : 4) / k;
+      g.fillStyle = m.kind === 'hangout' ? 'rgba(214, 72, 52, 0.95)' : '#ff5a3c';
+      g.strokeStyle = '#1a0806';
+      g.lineWidth = 1.5 / k;
+      g.beginPath();
+      if (m.kind === 'hangout') g.rect(ax - mx - r, az - mz - r, r * 2, r * 2);
+      else g.arc(ax - mx, az - mz, r, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+    }
     g.restore();
     // Player arrow (relative heading).
     g.save();
@@ -250,6 +265,23 @@ export class Minimap {
     g.font = `italic ${Math.max(11, Math.round(s * 24))}px system-ui, sans-serif`;
     g.fillStyle = '#9fb3c2';
     g.fillText('The Narrows Bridge', bx, bz);
+    // Gang hangouts.
+    for (const m of this.markers) {
+      if (m.kind !== 'hangout') continue;
+      const [a, b] = tm(m.x, m.z);
+      g.fillStyle = '#d64834';
+      g.strokeStyle = '#1a0806';
+      g.lineWidth = 2;
+      g.fillRect(a - 6, b - 6, 12, 12);
+      g.strokeRect(a - 6, b - 6, 12, 12);
+      if (m.label) {
+        g.font = `600 ${Math.max(11, Math.round(s * 20))}px system-ui, sans-serif`;
+        g.fillStyle = 'rgba(0,0,0,0.7)';
+        g.fillText(m.label, a + 1, b - 11);
+        g.fillStyle = '#f0b4a8';
+        g.fillText(m.label, a, b - 12);
+      }
+    }
     // Player.
     const [px, pz] = tm(x, z);
     g.save();

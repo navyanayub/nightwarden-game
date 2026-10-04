@@ -39,7 +39,7 @@ const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 
 /** Rotate `bone` (in world space) so its child direction `from` points along `to`. */
-function aimBone(bone: THREE.Bone, from: THREE.Vector3, to: THREE.Vector3): void {
+export function aimBone(bone: THREE.Bone, from: THREE.Vector3, to: THREE.Vector3): void {
   const rot = _q.setFromUnitVectors(from.clone().normalize(), to.clone().normalize());
   const parentQ = new THREE.Quaternion();
   bone.parent!.getWorldQuaternion(parentQ);
@@ -50,7 +50,7 @@ function aimBone(bone: THREE.Bone, from: THREE.Vector3, to: THREE.Vector3): void
 }
 
 /** Analytic two-bone IK in world space with a pole direction. */
-function twoBoneIK(upper: THREE.Bone, lower: THREE.Bone, hand: THREE.Bone, target: THREE.Vector3, pole: THREE.Vector3): void {
+export function twoBoneIK(upper: THREE.Bone, lower: THREE.Bone, hand: THREE.Bone, target: THREE.Vector3, pole: THREE.Vector3): void {
   const S = upper.getWorldPosition(new THREE.Vector3());
   const E = lower.getWorldPosition(new THREE.Vector3());
   const H = hand.getWorldPosition(new THREE.Vector3());

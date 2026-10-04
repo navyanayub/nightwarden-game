@@ -46,7 +46,8 @@ public/
     textures/<id>/         diff.webp, nor.webp (OpenGL normal), arm.webp (AO/rough/metal)
     models/props/          Poly Haven props (simplified, meshopt GLB)
     models/characters/     civilian_male.glb (player), crowd_{male,female}[_lod1|_lod2].glb,
-                           hair_*.glb (6 styles), anim_locomotion.glb (16 clips)
+                           hair_*.glb (6 styles), anim_locomotion.glb (33 clips: locomotion,
+                           crowd, combat, hits, roll, death, pistol, T-pose)
     audio/                 Kenney footsteps / impacts (OGG)
 docs/                      BUILD OUTPUT for GitHub Pages (committed every stage)
 screenshots/               test screenshots (committed)
@@ -61,18 +62,31 @@ src/
   world/                   WorldConfig, Terrain, CityLayout (street plan & specs), MeshBuilder,
                            Materials, BuildingGen, RoadGen, Landmarks, Props, Trees, Water,
                            Signage, NightLights (lamp light pool, light pools, wet streaks,
-                           lighthouse beam), Flags, World (chunk streaming / LOD orchestration)
-  player/                  Player (character, animation blending, controller), CameraRig
+                           lighthouse beam), Flags, Updrafts (chimney / roof-vent columns + steam),
+                           World (chunk streaming / LOD orchestration)
+  player/                  Player (character, animation blending, controller, traversal state
+                           machine, health/armour), CameraRig (follow / glide / combat framing,
+                           shake), HeroSuit (suit shader + armour/hood/mask/visor/emblem mesh),
+                           Cape (Verlet cloth), Traversal (ledge/vault/grapple probes, rope)
+  actors/                  Actor + ActorKit (skinned thugs / knocked-over pedestrians: clothing
+                           uniforms, weapons, layered animation, flinch, ragdoll rig)
+  physics/                 Ragdoll (11-body jointed Rapier ragdoll), RagdollRig (anim ⇄ ragdoll,
+                           get-up from front/back)
+  combat/                  Combat (freeflow strikes, counters, cape stun, finishers, gadgets,
+                           slow-mo, FX), Gore (optional limb detachment)
   vehicles/                VehicleModels (9 parametric procedural vehicles), VehicleSim
                            (headless physics, per-type spec), Vehicle (drivable + HeadlightRig)
   ai/                      LaneGraph (lanes, junction connections, conflicts, signal timing),
                            Traffic (IDM sim, junction logic, buses, spawning, crashes),
                            TrafficRender (instanced cars), SignalLights, Crowd (pedestrian
                            behaviours), CrowdRender (GPU-skinned instanced people), AnimBaker
+                           (+ exported twoBoneIK / aimBone), Enemies (gangs, hangouts, thug AI)
   systems/                 Clock (24 h game clock, sun/moon), Weather (states, wind,
                            lightning, wetness), Environment (per-frame clock/weather wiring)
   ui/                      UI.ts + styles.css (loading, HUD clock/weather, speedometer, pause
-                           with graphics/audio/day length, controls, F3), Minimap (+ M map)
+                           with graphics/audio/day length/gore, controls, F3, health/armour,
+                           combo, gadget wheel, enemy icons, grapple reticle), Minimap (+ M map,
+                           hangout / thug markers)
   audio/                   AudioManager (buses, 3D sounds, synths, ambience, music)
   types/                   ambient type declarations (n8ao)
 tests/
@@ -111,7 +125,11 @@ tools/
   then `update(dt, alpha)` (input, interpolation, camera, streaming, HUD), then `render`.
 - **Events**: add new event types to `GameEvents` in `core/EventBus.ts` (typed bus).
 - **Input**: query actions (`held`, `pressed`, `consume`), never raw keys. Gamepads use the
-  standard mapping. `input.forced` / `input.trigger()` script input for tests.
+  standard mapping. Mouse buttons are keys named `Mouse0` (left) / `Mouse2` (right) in the
+  binding table. Stage 3 actions: hero V, attack LMB, grapple G/RMB, counter Q (also the horn
+  while driving), capeStun C, gadgets Tab, useGadget R, finisher F, gadget1–3. Space is jump /
+  glide (held in the air) / dodge (in combat) / handbrake. `input.forced` / `input.trigger()`
+  script input for tests.
 - **Rendering**: renderer does no tone mapping itself; exposure lives in `FogEffect`
   (`uExposure`, set by `Atmosphere` as eye adaptation: 0.5 at noon → ~1.9 at night), tone
   mapping in the EffectPass. Sky colour = Preetham (`SkyShared.skyColor`) flattened by
@@ -178,7 +196,9 @@ tools/
   distance, clock-tower chimes on the hour, harbour foghorn, screams, surface footsteps from the
   player's locomotion phase; generative ambient pad (day/night chords) on the music bus.
 - **HUD**: clock + weather icon (top right), rotating minimap (bottom left, camera-up, zooms
-  out with speed), M = full map (pauses the simulation).
+  out with speed; hangouts and hostile thugs marked), M = full map (pauses the simulation, gang
+  names), health/armour bars + identity, combo counter (+ finisher ready), gadget indicator and
+  wheel, projected enemy icons (?, !, ⚡, red !, ✦ stunned), grapple reticle, dart/disarm aim.
 - **Materials**: one shared library (`world/Materials.ts`). PBR sets tile in world metres
   (MeshBuilder UVs are metres; texture `repeat = 1/tile`). `patchMacro` adds low-frequency
   variation + base grime. Window glass is interior-mapped (`aWin` attribute = seed, width,
@@ -201,6 +221,69 @@ tools/
   control and a yaw-stability assist so slides stay catchable. One `HeadlightRig` (2
   spotlights) follows the driven vehicle to keep the light count constant.
 
+- **Hero / civilian** (`player/HeroSuit.ts`): V toggles. The base body is re-shaded in bind
+  space (undersuit with sheen, seams, quilting, gloves, boots, bare jaw); armour plates, hood,
+  cowl, half-mask, visor lenses and the crescent emblem are curved shells authored in bind space
+  (T-pose, metres, +Z forward) and merged into ONE SkinnedMesh rigidly weighted to the body's
+  bones (5 material groups = 5 draws). Everything reads `shared.wetness` (darker, glossier).
+  Stage 5 replaces the V toggle with real identity switching.
+- **Cape** (`player/Cape.ts`): 24 × 32 Verlet cloth in world space, top row pinned on an arc
+  behind the neck (spine_03 skinning matrix), structural + bending constraints, per-column
+  tethers, 2 iterations × adaptive substeps (~120 Hz). Collides with capsules (pelvis, chest,
+  head, upper/lower arms, thighs, calves; arm/thigh capsules start a little out from the joint),
+  the ground and up to three locally-bounded wall planes probed by the player. Aerodynamic drag
+  against `wind` + body motion + turbulence (clamped). Glide: shape-matches to a taut cambered
+  wing built from the rest layout (never over-stretches); body collisions are off while tilted
+  and ease back in afterwards (`collideK`). Over-stretch triggers extra solver passes; a reset
+  only on NaN / >8× (counted in `stats.resets`, should stay 0; teleports count separately).
+  Frayed hem by alpha discard in the fabric shader. ~1 ms CPU in the headless container.
+- **Traversal** (`player/Player.ts` + `Traversal.ts`): states move / vault / hang / climb / glide
+  / grapple / warp / dodge / stagger / ragdoll. Probes are ray casts against `GROUPS_PROBE`
+  (world + props) that ignore rays starting inside geometry. Ledges: wall ahead + flat top within
+  1.4–2.6 m of the feet + head room; hang feet = top − 2.02 m; shimmy re-probes; climb is a
+  scripted up-then-over tween; drop with S. Vault thin obstacles 0.4–1.3 m (automatic when
+  running, out of combat), mantle deep ones ≤ 1.05 m. Grapple: aim assist fans 9 rays around the
+  camera centre, wall hits snap to the roof edge above, LOS checked; zip accelerates along the
+  rope keeping momentum (side motion bleeds off), launch boost sized to clear the edge and keeps
+  pushing over it for 0.9 s. Glide: dive angle (W/S) → speed (g·sin p − 0.0135 v²), A/D bank,
+  updraft lift, wind drift; landing fast + steep = dive-bomb (`player:land` with `dive`).
+  Fall damage above 14 m/s impact; > 24 m/s knocks the player down.
+- **Actors** (`actors/Actor.ts`): SkeletonUtils clones of the crowd bodies with per-actor
+  clothing uniforms (same GLSL as the crowd: `CLOTHES_FRAG`), hair, eyes/brows (hidden > 18 m),
+  weapons attached in bind pose (pipe, knife, pistol; riot shield on the forearm). Layers: base
+  loop cross-fade + one-shot overlay + flinch spring on spine/head. ~5 draws each.
+- **Ragdolls** (`physics/Ragdoll.ts`, `RagdollRig.ts`): 11 capsule bodies built from the
+  current pose (all bodies share the world rotation at creation; colliders carry the limb
+  orientation) so the creation pose is every joint's zero: spherical joints with per-axis limits
+  (raw `jointSetLimits`), elbows/knees revolute hinges limited from straight to fully bent.
+  Ragdolls don't collide with each other (`GROUPS_RAGDOLL`). Settled (≈0.3 s still) + stay-down
+  timer → get-up: the root moves under the pelvis, the lying pose is re-expressed as bone locals
+  and blended (0.45 s) into the death clip played backwards (the side it ends on) or a push-up
+  into a crouch (the other side). Knocked-out thugs stay down (`stayDown = Infinity`).
+- **Gangs** (`ai/Enemies.ts`): six hangouts (The Stacks, Railside, Clocktower Steps, Glasshouse
+  Plaza, The Pavilion, Hilltop Lot) placed on clear ground; props/colliders settle on first
+  activation (ground colliders stream in late). A group of 4–6 spawns within 135 m (brute,
+  shield, pistol variants), despawns beyond 230 m, respawns 5 min after being cleared.
+  Awareness unaware → suspicious → alert (calls backup: the crew + 2 runners once) → combat;
+  flee when ≥3 of the crew are down and ≤1 still fighting. Attack tokens: ≤2 melee + 1 shooter
+  at once, the rest circle on flanking slots. Wind-up shows the warning (1 = counterable,
+  2 = unblockable/gun → dodge). Movement = one shared Rapier KCC over kinematic capsules
+  (`GROUPS_ENEMY`). Fights raise a 'pavement' alarm so pedestrians flee.
+- **Combat** (`combat/Combat.ts`): runs in fixedUpdate after the player. Target = best
+  direction/distance score within 8 m; motion warp (≤0.4 s) then the hit lands mid-swing.
+  Counters (Q) hit up to two warned attackers; C cape stun (2.8 s, breaks shields); F finisher
+  when combo − last finisher ≥ 5 on a stunned/staggered thug; gadgets: smoke (thugs confused 4 s),
+  stun darts (aimed: closest to the screen centre), disarm grapple (weapons/shields fly to the
+  hand). `timeScale` (slow-mo on the last KO / finisher, 0.25 while the wheel is open) is applied
+  by `Loop.timeScale`; real-time UI uses `loop.realDt`. Camera: `rig.combat` frames the fight,
+  `rig.follow` recentres behind gliding/zipping, `rig.shake` on impacts.
+- **Vehicle hits**: the driven car knocks thugs over / out (>11 m/s); pedestrians in its
+  footprint are handed from the crowd (`crowd.struck`) to ragdoll actors that get up and run
+  (KO above 14 m/s). **Gore** (pause menu, off by default, `settings.gore`): only > 20 m/s
+  vehicle hits (and future explosions) detach a lower arm / leg: the limb's triangles become a
+  rigid mesh on the freed ragdoll body, the bone collapses to ~0 on the body, both ends get
+  sealed dark caps; pieces are removed after 20 s.
+
 ## Coding conventions
 
 - TypeScript strict, no `any` unless unavoidable; no unused locals (build fails).
@@ -221,6 +304,10 @@ tools/
   the 3.5 M target — crowd LOD distances / traffic far-LOD are the levers). Traffic instances
   ≈ 4.5–5.7k tris per car near, paint + lamps only beyond 160 m. 8 real street lights on High
   (2/4/8/12 by preset). Real GPU FPS has not been measured yet (headless = SwiftShader).
+- Stage 3 (headless container CPU, slower than a gaming PC): cape cloth ≈ 1.0 ms, player
+  update without the cape ≈ 0.05 ms, five fighting thugs (AI + actors + ragdolls) ≈ 0.2–0.3 ms.
+  Each actor ≈ 5 draws (+ shadow) and 8.5k tris; actors hide beyond 150 m, eyes/brows beyond
+  18 m, shadows beyond 40 m. At most 26 thugs and 8 knocked-over pedestrians exist at once.
 - Counts per preset (`traffic` / `pedestrians`): Low 40/70, Medium 60/110, High 80/170,
   Ultra 100/220 (scaled by hour, district and rain).
 - Shadow map: one 4096² cascade (High), 100 m radius; Ultra 150 m.
@@ -273,8 +360,19 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
   `?daymin=m`, `?norender` (logic only), `?nofog`, `?noao`, `?nobloom`, `?noenv`,
   `?noshadow`, `?basicshadow`, `?vsm`, `?fogdbg`.
 - `window.__NW.game` exposes `setDebugCamera`, `teleportPlayer`, `enterVehicle`,
-  `exitVehicle`, `simulate`, `primeWorld`, `autoDrive`, `setTime`, `setWeather`, `lightning`,
-  `gunshot`, `warmAI`, `gotoJunction`, `takeNearestTraffic`, `traffic`, `crowd`, `env`, `perf`.
+  `exitVehicle`, `simulate`, `primeWorld`, `autoDrive`, `setTime`, `setWeather`, `lightning(hold,
+  amp)`, `gunshot`, `warmAI`, `gotoJunction`, `takeNearestTraffic`, `traffic`, `crowd`, `env`,
+  `perf`; Stage 3: `setHero`, `spawnFight(n, kinds)`, `gotoRooftop`, `knockNearestPed`,
+  `enemies`, `combat`, `gore`, `updrafts`, `pedActors`, `settings`, `player.debugGlide`,
+  `player.cape.stats` / `stretchReport()`, `__probeLedge`, `__probeObstacle`. `simulate()` also
+  runs the visual update every 3 fixed steps (animation, ragdoll timers, cape). Scripted input:
+  `input.forced = { moveX, moveY, sprint, hold: ['jump', …] }`, `input.trigger(action)`.
+  URL `?hero` starts suited up, `?gore` turns gore on.
+- Stage 3 e2e checks: cape never resets / NaNs and stays < 4× stretch with ≥ −8 cm clearance
+  through storm, sprint, jump, ledge, grapple, glide, fight and knock-downs; ledge hang/shimmy/
+  climb; grapple lands on the roof; glide sink < 5 m/s, dive > 15 m/s, updraft lift; fight KOs,
+  combo, counters, dodges, smoke; ragdolls settle; pedestrian hit → ragdoll → get-up; player
+  knock-down → get-up; gore off by default and detaches a limb when on.
 - Always inspect the screenshots yourself; fix anything flat, blocky, broken or too dark.
 
 ## Roadmap
@@ -286,7 +384,10 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
    buses, hijacking; GPU-skinned crowds with behaviours and reactions; 24 h day/night with
    night lighting; 7 weather states with rain, wet roads, lightning, wind, fog banks; 3D audio
    with ambience and music; minimap, full map, clock and weather HUD.
-3. **Stage 3 — The vigilante**: suit, cape physics, grapple, gliding, combat, ragdolls.
+3. **Stage 3 — The vigilante (done)**: hero suit (V toggle), Verlet cape with wind/glide
+   wing/wetness, vault/ledges/grapple/glide/updrafts/dive-bomb/fall damage, freeflow combat
+   with counters, cape stun, finishers, gadgets, slow-mo and combat camera, gang hangouts with
+   tokened thug AI, Rapier ragdolls with get-ups for everyone, optional gore.
 4. **Stage 4 — Crime and police**.
 5. **Stage 5 — Dual identity**.
 6. **Stage 6 — Every vehicle type**.
@@ -301,8 +402,16 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
   on wet roads are faked with streaks.
 - Chunk generation runs on the main thread (time-sliced); a Web Worker would remove the
   remaining ~40 ms worst-case step.
-- Pedestrians have no physics bodies (the player's car passes through; they dodge instead).
-  Ragdolls arrive in Stage 3. Crowd navigation is pavement rings + crossings, not a navmesh:
+- Pedestrians have no physics bodies until hit: the player's car hands them to ragdoll actors;
+  traffic cars never hit them. Crowd navigation is pavement rings + crossings, not a navmesh:
   people never enter parks/plazas interiors except benches and groups.
+- Thugs have no navmesh either: they steer straight with a KCC and separation, so walls between
+  them and the player can stall them. No climbing/vaulting AI.
+- No dedicated climb / hang / glide clips exist in the CC0 library: those poses are IK on top of
+  fall / T-pose clips; get-ups reuse the death clip backwards and a crouch.
+- The cape has no self-collision; strong storms can fold it over the shoulders briefly. While
+  gliding the body doesn't collide with it (the wing shape holds it clear).
+- Combat targets thugs only (pedestrians can't be attacked); there are no explosions yet, so gore
+  only triggers on very fast vehicle hits.
 - Traffic cars are kinematic until hit; a wreck stays where it stops until it despawns.
 - No positional reverb/occlusion; sounds are mostly synthesised.

@@ -204,6 +204,9 @@ const KEEP_ANIMS = [
   'Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Driving_Loop', 'Interact',
   // Crowd behaviours.
   'Idle_Talking_Loop', 'Walk_Formal_Loop', 'Sitting_Idle_Loop', 'Sitting_Talking_Loop', 'Crouch_Idle_Loop', 'Hit_Chest', 'Idle_Torch_Loop',
+  // Stage 3: combat, hit reactions, traversal and enemy weapons.
+  'Punch_Jab', 'Punch_Cross', 'Roll', 'Hit_Head', 'Death01', 'Crouch_Fwd_Loop', 'Fixing_Kneeling', 'Sitting_Exit',
+  'A_TPose', 'Pistol_Idle_Loop', 'Pistol_Shoot', 'Pistol_Aim_Neutral', 'Sword_Attack', 'Sword_Idle', 'Spell_Simple_Shoot', 'Push_Loop', 'Swim_Fwd_Loop',
 ];
 
 async function animations() {

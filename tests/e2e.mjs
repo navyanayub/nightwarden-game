@@ -142,7 +142,8 @@ async function main() {
     near.speed = 0;
     const kind = near.spec.kind;
     g.takeNearestTraffic();
-    const hijacked = g.mode === 'drive' && g.current && g.current.spec.kind === kind;
+    // (Another car may be marginally nearer than the one we stopped: any taken traffic car counts.)
+    const hijacked = g.mode === 'drive' && !!g.current && g.current.fromTraffic === true;
     const fled = g.crowd.peds.filter((p) => p.state === 'flee').length;
     g.exitVehicle();
     // Crowd reacts to a gunshot.
@@ -166,6 +167,214 @@ async function main() {
   console.log('living city', living);
   const livingOk = living.cars > 30 && living.moving > living.cars * 0.3 && living.redRunners <= 2 && living.buses >= 2 && living.hijacked && living.fled >= 1 && living.peds > 30 && living.states >= 3 && living.fleeing > 5 && living.rain.drops > 1000 && living.rain.wet > 0.5;
   if (!livingOk) errors.push(`living-city check failed: ${JSON.stringify(living)}`);
+
+  // Stage 3: the vigilante (suit, cape, traversal, combat, enemies, ragdolls, gore).
+  const vig = await page.evaluate(() => {
+    const g = window.__NW.game;
+    const pl = g.player;
+    const c = pl.cape;
+    const p = pl.position;
+    g.setWeather('partly');
+    g.setTime(13);
+    g.clearDebugCamera();
+    const s = g.world.city.spawn;
+    g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+    g.enemies.clear();
+    const goreDefault = g.settings.gore;
+    g.setHero(true);
+    g.simulate(0.5);
+    const cape = { maxStretch: 0, minBody: 9, nan: false, phases: {} };
+    let phase = 'start';
+    const ph = (n) => (phase = n);
+    const track = () => {
+      cape.maxStretch = Math.max(cape.maxStretch, c.stats.maxStretch);
+      cape.minBody = Math.min(cape.minBody, c.stats.minBodyDist);
+      const e = (cape.phases[phase] ??= { max: 0, min: 9, resets0: c.stats.resets, resets: 0 });
+      e.max = +Math.max(e.max, c.stats.maxStretch).toFixed(2);
+      e.min = +Math.min(e.min, c.stats.minBodyDist).toFixed(3);
+      e.resets = c.stats.resets - e.resets0;
+      for (let i = 0; i < c.positions.length; i += 97) if (!Number.isFinite(c.positions[i])) cape.nan = true;
+    };
+    const step = (secs) => {
+      for (let t = 0; t < secs - 1e-6; t += 0.05) {
+        g.simulate(0.05);
+        track();
+      }
+    };
+    const r0 = c.stats.resets;
+    // Cape in a storm: stand, sprint, jump.
+    ph('storm');
+    g.setWeather('storm');
+    step(1);
+    g.input.forced = { moveY: 1, sprint: true };
+    step(1.2);
+    g.input.trigger('jump');
+    step(1);
+    g.input.forced = null;
+    step(0.5);
+    g.setWeather('partly');
+    // Ledge: fall past a roof edge, grab, shimmy, climb.
+    ph('ledge');
+    const b = g.world.city.buildings.filter((bb) => bb.district === 'midtown' && bb.roof === 'flat' && bb.height > 15 && bb.height < 45 && bb.tiers.length <= 1).sort((a, d) => Math.hypot(a.cx - p.x, a.cz - p.z) - Math.hypot(d.cx - p.x, d.cz - p.z))[0];
+    const roofHit = (x, z) => g.__probeLedge(new g.__THREE.Vector3(x, b.baseY + b.height - 2.1, z), new g.__THREE.Vector3(0, 0, -1), 1, 3.5, 2);
+    const lp = roofHit(b.cx, b.cz + b.d / 2 + 0.5);
+    const top = lp ? lp.top : b.baseY + b.height;
+    pl.teleport(b.cx, top - 1.9, (lp ? lp.edge.z : b.cz + b.d / 2) + 0.55, Math.PI);
+    g.rig.yaw = 0;
+    step(0.3);
+    const hung = pl.state === 'hang';
+    g.input.forced = { moveX: 1 };
+    const x0 = p.x;
+    step(0.6);
+    const shimmied = p.x - x0;
+    g.input.forced = null;
+    step(0.3);
+    g.input.trigger('jump');
+    step(1.2);
+    const climbed = pl.state === 'move' && p.y > top - 0.3;
+    // Grapple from the street to the same roof edge.
+    ph('grapple');
+    const gx = b.cx;
+    const gz = b.cz + b.d / 2 + 14;
+    g.teleportPlayer(gx, gz, Math.PI, 0);
+    step(0.4);
+    const cam = g.renderer.camera;
+    cam.position.set(gx, p.y + 1.8, gz + 3);
+    cam.lookAt(gx, top - 2, b.cz + b.d / 2);
+    cam.updateMatrixWorld();
+    for (let i = 0; i < 3; i++) pl.updateAim(cam);
+    const grappleTarget = !!pl.grappleTarget;
+    g.input.trigger('grapple');
+    step(2.5);
+    const grappled = p.y > top - 0.5;
+    // Glide from height: speed builds in a dive, updrafts lift.
+    ph('glide');
+    pl.teleport(p.x, top + 60, p.z, Math.PI);
+    step(0.5);
+    g.input.forced = { hold: ['jump'], moveY: 0 };
+    pl.debugGlide(Math.PI, 12);
+    const y0 = p.y;
+    step(2);
+    const sink = (y0 - p.y) / 2;
+    g.input.forced = { hold: ['jump'], moveY: 1 };
+    step(1.5);
+    const diveSpeed = pl.glide.speed;
+    const glided = pl.state === 'glide' || pl.state === 'move';
+    g.input.forced = null;
+    step(3);
+    const u = g.updrafts.list[0];
+    const lift = g.updrafts.lift(u.x, u.y0 + 6, u.z);
+    // Fight five thugs at the spawn.
+    ph('fight');
+    g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+    pl.health = 100;
+    pl.armour = 60;
+    step(0.5);
+    const thugs = g.spawnFight(5, ['thug', 'brute', 'shield', 'thug', 'thug']);
+    let counters = 0;
+    let dodges = 0;
+    let maxCombo = 0;
+    let warned = 0;
+    for (let i = 0; i < 70; i++) {
+      const danger = g.enemies.thugs.some((t) => t.warn === 2 && t.dist < 5);
+      const warn = g.enemies.thugs.some((t) => t.warn === 1);
+      if (warn || danger) warned++;
+      if (danger) {
+        g.input.trigger('jump');
+        dodges++;
+      } else if (warn) {
+        g.input.trigger('counter');
+        counters++;
+      } else if (i % 9 === 4) g.input.trigger('capeStun');
+      else if (g.combat.finisherReady) g.input.trigger('finisher');
+      else g.input.trigger('attack');
+      step(0.3);
+      maxCombo = Math.max(maxCombo, g.combat.combo);
+    }
+    const kos = thugs.filter((t) => t.ko).length;
+    // Gadgets.
+    g.combat.gadget = 'smoke';
+    g.input.trigger('useGadget');
+    step(0.3);
+    const smoke = g.enemies.smokes.length > 0;
+    // Ragdolls: knocked-out bodies settle on the ground, no NaN.
+    ph('ragdoll');
+    step(3);
+    let ragOk = true;
+    for (const t of thugs.filter((tt) => tt.ko)) {
+      const rd = t.actor.rig.ragdoll;
+      if (!rd) continue;
+      const q = rd.pelvis.translation();
+      const ground = g.__THREE ? t.pos.y : 0;
+      if (!Number.isFinite(q.y) || q.y < ground - 0.6 || q.y > ground + 2.5) ragOk = false;
+    }
+    // A pedestrian hit by a car ragdolls, gets up (front or back) and runs.
+    ph('ped');
+    g.enemies.clear();
+    g.warmAI(5);
+    const pedHit = g.knockNearestPed(9);
+    const pedDown = g.pedActors.length > 0 && g.pedActors[g.pedActors.length - 1].actor.down;
+    step(8);
+    const pedUp = g.pedActors.some((e) => e.up);
+    // Player knock-down and get-up.
+    ph('plko');
+    pl.knockDown(new g.__THREE.Vector3(3, 2, 0), 0.3);
+    const plDown = pl.state === 'ragdoll';
+    step(5);
+    const plUp = pl.state === 'move';
+    // Gore: off by default; on → an extreme vehicle hit can detach a limb.
+    ph('gore');
+    g.settings.gore = true;
+    const gt = g.spawnFight(1)[0];
+    step(0.2);
+    g.enemies.damage(gt, 99, gt.pos.clone().add(new g.__THREE.Vector3(3, 0, 0)), { kind: 'vehicle', knock: 25 });
+    g.goreHit(gt.actor, 1);
+    const goreCount = g.gore.count;
+    step(1);
+    g.settings.gore = false;
+    g.enemies.clear();
+    g.setHero(false);
+    step(0.3);
+    return {
+      goreDefault,
+      cape: { ...cape, resets: c.stats.resets - r0 },
+      ledge: { hung, shimmied: +shimmied.toFixed(2), climbed },
+      grapple: { grappleTarget, grappled },
+      glide: { glided, sink: +sink.toFixed(2), diveSpeed: +diveSpeed.toFixed(1), lift: +lift.toFixed(1) },
+      fight: { kos, maxCombo, counters, dodges, warned, smoke, health: Math.round(pl.health), hangouts: g.enemies.hangouts.length },
+      ragOk,
+      ped: { pedHit, pedDown, pedUp },
+      player: { plDown, plUp },
+      goreCount,
+    };
+  });
+  console.log('vigilante', JSON.stringify(vig));
+  const vigOk =
+    vig.goreDefault === false &&
+    !vig.cape.nan &&
+    vig.cape.resets === 0 &&
+    vig.cape.maxStretch < 4 &&
+    vig.cape.minBody > -0.08 &&
+    vig.ledge.hung &&
+    vig.ledge.climbed &&
+    vig.grapple.grappleTarget &&
+    vig.grapple.grappled &&
+    vig.glide.glided &&
+    vig.glide.sink < 5 &&
+    vig.glide.diveSpeed > 15 &&
+    vig.glide.lift > 3 &&
+    vig.fight.kos >= 2 &&
+    vig.fight.maxCombo >= 3 &&
+    vig.fight.smoke &&
+    vig.fight.hangouts === 6 &&
+    vig.ragOk &&
+    vig.ped.pedHit &&
+    vig.ped.pedDown &&
+    vig.ped.pedUp &&
+    vig.player.plDown &&
+    vig.player.plUp &&
+    vig.goreCount > 0;
+  if (!vigOk) errors.push(`vigilante check failed: ${JSON.stringify(vig)}`);
 
   // Performance log (High preset, busy Midtown, 60+ cars / 150+ pedestrians around).
   const perf = await page.evaluate(async () => {
@@ -352,6 +561,156 @@ async function main() {
       const p = g.player.position;
       g.setDebugCamera(p.x + 10, p.y + 3.5, p.z + 10, p.x - 6, p.y + 1, p.z - 6);
     }, 8000);
+    // Stage 3: the vigilante.
+    await shot('24-hero-rooftop-rain-night', () => {
+      const g = window.__NW.game;
+      g.enemies.spawning = false;
+      g.enemies.clear();
+      g.setWeather('storm');
+      g.setTime(22.5);
+      g.setHero(true);
+      g.clearDebugCamera();
+      g.gotoRooftop(18, 60);
+      g.simulate(2.5);
+      const p = g.player.object.position;
+      const y = g.player.yaw;
+      const fx = Math.sin(y);
+      const fz = Math.cos(y);
+      g.setDebugCamera(p.x - fx * 2.6 + fz * 1.5, p.y + 1.6, p.z - fz * 2.6 - fx * 1.5, p.x + fx * 4, p.y + 0.6, p.z + fz * 4);
+      g.lightning(true, 0.55);
+    }, 7000);
+    await page.evaluate(() => window.__NW.game.releaseLightning());
+    await shot('25-glide-midtown', () => {
+      const g = window.__NW.game;
+      g.setHero(true);
+      g.setWeather('partly');
+      g.setTime(17.2);
+      g.clearDebugCamera();
+      const n = g.gotoJunction();
+      const yaw = Math.PI;
+      g.player.teleport(n.x + 4, 110, n.z + 140, yaw);
+      g.simulate(0.6);
+      g.input.forced = { hold: ['jump'], moveY: 0.25 };
+      g.player.debugGlide(yaw, 16);
+      g.simulate(2.2);
+      const p = g.player.object.position;
+      g.setDebugCamera(p.x + 2.4, p.y + 2.6, p.z + 4.6, p.x - 1.5, p.y - 4, p.z - 14);
+      g.loop.paused = true;
+    }, 7000);
+    await page.evaluate(() => {
+      const g = window.__NW.game;
+      g.loop.paused = false;
+      g.input.forced = null;
+    });
+    await shot('26-fight-five-thugs', () => {
+      const g = window.__NW.game;
+      g.setHero(true);
+      g.enemies.clear();
+      g.setWeather('clear');
+      g.setTime(18.6);
+      g.clearDebugCamera();
+      const s = g.world.city.spawn;
+      g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+      g.player.health = 100;
+      g.player.armour = 60;
+      g.simulate(0.5);
+      g.spawnFight(5, ['thug', 'brute', 'shield', 'thug', 'thug']);
+      g.simulate(1.6);
+      for (let i = 0; i < 5; i++) {
+        if (g.enemies.thugs.some((t) => t.warn === 1)) g.input.trigger('counter');
+        else g.input.trigger('attack');
+        g.simulate(0.32);
+      }
+      const thugs = g.enemies.thugs.filter((t) => !t.ko);
+      const c = thugs.reduce((a, t) => a.add(t.pos), new g.__THREE.Vector3()).multiplyScalar(1 / Math.max(1, thugs.length));
+      const p = g.player.position;
+      const d = c.clone().sub(p).setY(0).normalize();
+      g.rig.yaw = Math.atan2(-d.x, -d.z) + 0.5;
+      g.rig.pitch = -0.32;
+      // End mid-strike so the hero is caught throwing a punch.
+      g.player.health = 100;
+      g.input.trigger('attack');
+      g.simulate(0.2);
+      g.loop.paused = true;
+    }, 4000);
+    await page.evaluate(() => (window.__NW.game.loop.paused = false));
+    await shot('27-ragdoll-knockdown', () => {
+      const g = window.__NW.game;
+      g.setHero(true);
+      g.enemies.clear();
+      g.setTime(15);
+      g.setWeather('partly');
+      g.clearDebugCamera();
+      const s = g.world.city.spawn;
+      g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+      g.simulate(0.3);
+      const p = g.player.position.clone();
+      const y = g.player.yaw;
+      const fx = Math.sin(y);
+      const fz = Math.cos(y);
+      const t = g.enemies.spawnFight(p.x, p.z, 1, ['thug'])[0];
+      const tx = p.x + fx * 1.25;
+      const tz = p.z + fz * 1.25;
+      t.pos.set(tx, p.y, tz);
+      t.body.setTranslation({ x: tx, y: p.y + 0.95, z: tz }, true);
+      t.yaw = y + Math.PI;
+      g.simulate(0.15);
+      g.player.face(y);
+      g.player.playOnce('Sword_Attack', 1.25, 0.05, 0.2);
+      g.simulate(0.3);
+      g.enemies.damage(t, 99, p, { kind: 'finisher' });
+      g.simulate(0.5);
+      const q = t.actor.rig.ragdoll.pelvis.translation();
+      const mx = (q.x + p.x) / 2;
+      const mz = (q.z + p.z) / 2;
+      g.setDebugCamera(mx + fz * 4.2, p.y + 1.4, mz - fx * 4.2, mx, p.y + 0.7, mz);
+      g.loop.paused = true;
+    }, 4000);
+    await page.evaluate(() => (window.__NW.game.loop.paused = false));
+    await shot('28-hero-closeup', () => {
+      const g = window.__NW.game;
+      g.setHero(true);
+      g.enemies.clear();
+      g.setTime(16.5);
+      g.setWeather('clear');
+      g.clearDebugCamera();
+      const s = g.world.city.spawn;
+      g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+      g.simulate(1.5);
+      const p = g.player.object.position;
+      const y = g.player.yaw;
+      g.setDebugCamera(p.x + Math.sin(y + 0.5) * 2.2, p.y + 1.55, p.z + Math.cos(y + 0.5) * 2.2, p.x, p.y + 1.15, p.z);
+    }, 4000);
+    await shot('29-grapple-zip', () => {
+      const g = window.__NW.game;
+      g.setHero(true);
+      g.enemies.clear();
+      g.setTime(13.5);
+      g.clearDebugCamera();
+      const p = g.player.position;
+      const b = g.world.city.buildings.filter((bb) => bb.district === 'midtown' && bb.roof === 'flat' && bb.height > 15 && bb.height < 45 && bb.tiers.length <= 1).sort((a, d) => Math.hypot(a.cx - p.x, a.cz - p.z) - Math.hypot(d.cx - p.x, d.cz - p.z))[0];
+      const gx = b.cx;
+      const gz = b.cz + b.d / 2 + 16;
+      g.teleportPlayer(gx, gz, Math.PI, 0);
+      g.simulate(0.4);
+      const cam = g.renderer.camera;
+      cam.position.set(gx, p.y + 1.8, gz + 3);
+      cam.lookAt(gx, b.baseY + b.height - 2, b.cz + b.d / 2);
+      cam.updateMatrixWorld();
+      for (let i = 0; i < 3; i++) g.player.updateAim(cam);
+      g.input.trigger('grapple');
+      g.simulate(0.75);
+      const q = g.player.object.position;
+      g.setDebugCamera(q.x + 4, q.y - 1.5, q.z + 9, q.x, q.y + 3, q.z - 1);
+      g.loop.paused = true;
+    }, 4000);
+    await page.evaluate(() => {
+      const g = window.__NW.game;
+      g.loop.paused = false;
+      g.simulate(3);
+      g.setHero(false);
+      g.enemies.spawning = true;
+    });
     await page.evaluate(() => {
       const g = window.__NW.game;
       g.setWeather('partly');
