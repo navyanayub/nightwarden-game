@@ -1,0 +1,75 @@
+:root {
+  --gold: #c9a45c;
+  --ink: #0b1018;
+  --panel: rgba(10, 15, 24, 0.82);
+  --line: rgba(201, 164, 92, 0.35);
+  --text: #e9e4d8;
+  --muted: #9aa3ad;
+  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #05070b; color: var(--text); }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+#ui { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+#ui .interactive { pointer-events: auto; }
+
+/* Loading screen */
+.loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  background: radial-gradient(ellipse at 50% 35%, #1b2636 0%, #0a0e15 55%, #040509 100%); transition: opacity 0.8s; z-index: 50; }
+#ui .loading.done { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity 0.8s, visibility 0s 0.8s; }
+.logo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.logo svg { width: 96px; height: 96px; filter: drop-shadow(0 0 18px rgba(201, 164, 92, 0.35)); }
+.logo h1 { margin: 0; font-size: 54px; letter-spacing: 0.32em; font-weight: 800; color: #f1ead8; text-indent: 0.32em; }
+.logo h2 { margin: 0; font-size: 13px; letter-spacing: 0.5em; color: var(--gold); font-weight: 600; text-indent: 0.5em; }
+.bar { width: min(460px, 70vw); height: 6px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; border: 1px solid var(--line); }
+.bar > div { height: 100%; width: 0%; background: linear-gradient(90deg, #8a6c34, var(--gold), #f3dfae); transition: width 0.25s; }
+.loading .label { font-size: 12px; letter-spacing: 0.18em; color: var(--muted); text-transform: uppercase; min-height: 1em; }
+.loading .tip { position: absolute; bottom: 36px; font-size: 13px; color: var(--muted); }
+.loading .start { pointer-events: auto; padding: 12px 34px; font-size: 14px; letter-spacing: 0.3em; font-weight: 700; color: var(--ink); background: var(--gold);
+  border: none; border-radius: 2px; cursor: pointer; opacity: 0; transition: opacity 0.4s; }
+.loading .start.show { opacity: 1; }
+
+/* HUD */
+.hud-prompt { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 8px 16px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 3px; font-size: 14px; letter-spacing: 0.06em; opacity: 0; transition: opacity 0.2s; }
+.hud-prompt.show { opacity: 1; }
+.key { display: inline-block; min-width: 22px; padding: 1px 7px; margin: 0 2px; border: 1px solid var(--gold); border-radius: 3px; color: var(--gold); font-weight: 700; text-align: center; }
+.hud-district { position: absolute; left: 28px; bottom: 26px; font-size: 13px; letter-spacing: 0.22em; text-transform: uppercase; color: #f1ead8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); opacity: 0.9; }
+.hud-district small { display: block; color: var(--gold); font-size: 10px; letter-spacing: 0.3em; margin-bottom: 2px; }
+.hud-hint { position: absolute; right: 22px; top: 18px; font-size: 12px; color: var(--muted); text-shadow: 0 1px 2px #000; }
+
+/* Speedometer */
+.speedo { position: absolute; right: 34px; bottom: 30px; width: 190px; height: 190px; opacity: 0; transition: opacity 0.3s; }
+.speedo.show { opacity: 1; }
+.speedo svg { width: 100%; height: 100%; }
+.speedo .num { position: absolute; left: 0; right: 0; top: 74px; text-align: center; font-size: 40px; font-weight: 800; color: #f6f1e4; text-shadow: 0 2px 6px #000; }
+.speedo .unit { position: absolute; left: 0; right: 0; top: 120px; text-align: center; font-size: 11px; letter-spacing: 0.3em; color: var(--gold); }
+.speedo .gear { position: absolute; left: 0; right: 0; top: 140px; text-align: center; font-size: 15px; font-weight: 700; color: #f6f1e4; }
+
+/* Panels */
+.overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(3, 5, 9, 0.55); backdrop-filter: blur(3px); }
+.overlay.show { display: flex; pointer-events: auto; }
+.panel { min-width: 360px; max-width: 760px; padding: 28px 34px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.panel h3 { margin: 0 0 18px; font-size: 14px; letter-spacing: 0.35em; color: var(--gold); text-transform: uppercase; }
+.panel .menu button { display: block; width: 100%; margin: 8px 0; padding: 11px 16px; font-size: 14px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line); border-radius: 2px; cursor: pointer; text-align: left; }
+.panel .menu button:hover, .panel .menu button:focus { background: rgba(201, 164, 92, 0.18); outline: none; }
+.presets { display: flex; gap: 6px; margin: 6px 0 4px; }
+.presets button { flex: 1; padding: 9px 4px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
+.presets button.active { background: var(--gold); color: var(--ink); font-weight: 700; }
+.panel .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+.controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; font-size: 13px; }
+.controls-grid h4 { grid-column: span 2; margin: 14px 0 4px; font-size: 11px; letter-spacing: 0.3em; color: var(--gold); text-transform: uppercase; }
+.controls-grid div { display: flex; justify-content: space-between; gap: 18px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.controls-grid span:last-child { color: var(--muted); }
+
+/* Stats */
+.stats { position: absolute; left: 10px; top: 10px; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 3px; display: none; white-space: pre; }
+.stats.show { display: block; }
+.toast { position: absolute; left: 50%; top: 14%; transform: translateX(-50%); padding: 8px 18px; background: var(--panel); border: 1px solid var(--line);
+  font-size: 13px; letter-spacing: 0.12em; opacity: 0; transition: opacity 0.4s; }
+.toast.show { opacity: 1; }
+.crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255, 255, 255, 0.65); box-shadow: 0 0 2px #000; }

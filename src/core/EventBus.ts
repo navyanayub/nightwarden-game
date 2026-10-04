@@ -1,0 +1,44 @@
+/**
+ * Typed publish/subscribe bus. Systems talk through events instead of importing each other.
+ * Add new events to `GameEvents` so every emit/on call stays type-checked.
+ */
+import type { GraphicsPreset } from './Settings';
+
+export interface GameEvents {
+  'loading:progress': { progress: number; label: string };
+  'loading:done': void;
+  'game:pause': void;
+  'game:resume': void;
+  'settings:preset': { preset: GraphicsPreset };
+  'player:enterVehicle': { vehicleId: number };
+  'player:exitVehicle': { vehicleId: number };
+  'vehicle:speed': { kmh: number; rpm: number; gear: number };
+  'ui:toggleControls': void;
+  'ui:toggleStats': void;
+  'world:chunkBuilt': { key: string };
+}
+
+type Handler<T> = (payload: T) => void;
+
+export class EventBus {
+  private handlers = new Map<keyof GameEvents, Set<Handler<unknown>>>();
+
+  on<K extends keyof GameEvents>(type: K, handler: Handler<GameEvents[K]>): () => void {
+    let set = this.handlers.get(type);
+    if (!set) {
+      set = new Set();
+      this.handlers.set(type, set);
+    }
+    set.add(handler as Handler<unknown>);
+    return () => set!.delete(handler as Handler<unknown>);
+  }
+
+  emit<K extends keyof GameEvents>(type: K, ...payload: GameEvents[K] extends void ? [] : [GameEvents[K]]): void {
+    const set = this.handlers.get(type);
+    if (!set) return;
+    for (const h of set) h(payload[0]);
+  }
+}
+
+/** Shared singleton bus. */
+export const events = new EventBus();
