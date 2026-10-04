@@ -1,7 +1,7 @@
 {
   "preset": "high",
-  "avgFps": 0.333,
-  "frames": 10,
+  "avgFps": 0.3,
+  "frames": 9,
   "seconds": 30,
   "trianglesPerCar": [
     4542,
@@ -9,14 +9,14 @@
     5058,
     5690
   ],
-  "cpuUpdateMs": 2.35,
-  "trafficMs": 0.25,
-  "crowdMs": 0.3,
-  "renderSubmitMs": 293.6,
-  "cars": 66,
-  "carsOnScreen": 31,
-  "peds": 148,
-  "pedsDrawn": 32,
-  "drawCalls": 556,
-  "triangles": 3061912
+  "cpuUpdateMs": 2.09,
+  "trafficMs": 0.17,
+  "crowdMs": 0.25,
+  "renderSubmitMs": 277,
+  "cars": 55,
+  "carsOnScreen": 27,
+  "peds": 151,
+  "pedsDrawn": 52,
+  "drawCalls": 552,
+  "triangles": 3308050
 }

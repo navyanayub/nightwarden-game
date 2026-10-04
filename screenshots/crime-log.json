@@ -1,6 +1,6 @@
 {
   "seconds": 600,
-  "cpuSeconds": 87.7,
+  "cpuSeconds": 112.8,
   "clock": "20:30 → ",
   "crimes": [
     {
@@ -11,9 +11,9 @@
       "district": "Midtown",
       "startedAt": 72,
       "clock": "20:30",
-      "endedAt": 128,
-      "outcome": "police",
-      "detail": "2 arrested by Vellmoor PD"
+      "endedAt": 166,
+      "outcome": "escaped",
+      "detail": "the getaway car lost its pursuers"
     },
     {
       "id": 2,
@@ -33,11 +33,11 @@
       "label": "Mugging — Midtown",
       "gang": "Velvet Hand",
       "district": "Midtown",
-      "startedAt": 137,
+      "startedAt": 119,
       "clock": "20:30",
-      "endedAt": 192,
-      "outcome": "failed",
-      "detail": "the victim was beaten and robbed"
+      "endedAt": 170,
+      "outcome": "police",
+      "detail": "1 arrested by Vellmoor PD"
     },
     {
       "id": 4,
@@ -45,189 +45,177 @@
       "label": "Getaway car chase — Midtown",
       "gang": "Velvet Hand",
       "district": "Midtown",
-      "startedAt": 182,
+      "startedAt": 164,
       "clock": "20:30",
-      "endedAt": 218,
-      "outcome": "escaped",
-      "detail": "the getaway car lost its pursuers"
-    },
-    {
-      "id": 5,
-      "type": "shopRobbery",
-      "label": "Shop robbery — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 219,
-      "clock": "20:30",
-      "endedAt": 289,
-      "outcome": "escaped",
-      "detail": "the shopkeeper was hurt, the robbers escaped with the till"
-    },
-    {
-      "id": 6,
-      "type": "streetFight",
-      "label": "Gang street fight — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 262,
-      "clock": "20:30",
-      "endedAt": 271,
-      "outcome": "failed",
-      "detail": "Velvet Hand won the fight; several hurt"
-    },
-    {
-      "id": 7,
-      "type": "mugging",
-      "label": "Mugging — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 286,
-      "clock": "20:30",
-      "endedAt": 336,
-      "outcome": "police",
-      "detail": "1 arrested by Vellmoor PD"
-    },
-    {
-      "id": 8,
-      "type": "carTheft",
-      "label": "Car theft — Northside Hills",
-      "gang": "Ashline Syndicate",
-      "district": "Northside Hills",
-      "startedAt": 331,
-      "clock": "20:30",
-      "endedAt": 383,
-      "outcome": "escaped",
-      "detail": "the getaway car lost its pursuers"
-    },
-    {
-      "id": 9,
-      "type": "arson",
-      "label": "Arson — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 364,
-      "clock": "20:30",
-      "endedAt": 424,
-      "outcome": "failed",
-      "detail": "the building burnt"
-    },
-    {
-      "id": 10,
-      "type": "shopRobbery",
-      "label": "Shop robbery — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 405,
-      "clock": "20:30",
-      "endedAt": 451,
-      "outcome": "police",
-      "detail": "3 arrested by Vellmoor PD"
-    },
-    {
-      "id": 11,
-      "type": "getaway",
-      "label": "Getaway car chase — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 432,
-      "clock": "20:30",
-      "endedAt": 512,
-      "outcome": "escaped",
-      "detail": "the getaway car lost its pursuers"
-    },
-    {
-      "id": 12,
-      "type": "getaway",
-      "label": "Getaway car chase — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 468,
-      "clock": "20:30",
-      "endedAt": 516,
+      "endedAt": 210,
       "outcome": "escaped",
       "detail": "the suspects fled"
     },
     {
-      "id": 13,
+      "id": 5,
       "type": "streetFight",
-      "label": "Gang street fight — Vellmoor Park",
-      "gang": "Tidewater Crew",
-      "district": "Vellmoor Park",
-      "startedAt": 502,
-      "clock": "20:30",
-      "endedAt": 512,
-      "outcome": "failed",
-      "detail": "Tidewater won the fight; several hurt"
-    },
-    {
-      "id": 14,
-      "type": "getaway",
-      "label": "Getaway car chase — Midtown",
+      "label": "Gang street fight — Midtown",
       "gang": "Velvet Hand",
       "district": "Midtown",
-      "startedAt": 544,
+      "startedAt": 200,
       "clock": "20:30",
-      "endedAt": 644,
+      "endedAt": 210,
+      "outcome": "failed",
+      "detail": "Ashline won the fight; several hurt"
+    },
+    {
+      "id": 6,
+      "type": "shopRobbery",
+      "label": "Shop robbery — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 244,
+      "clock": "20:30",
+      "endedAt": 278,
+      "outcome": "police",
+      "detail": "2 arrested by Vellmoor PD"
+    },
+    {
+      "id": 7,
+      "type": "carTheft",
+      "label": "Car theft — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 288,
+      "clock": "20:30",
+      "endedAt": 370,
       "outcome": "escaped",
       "detail": "the getaway car lost its pursuers"
     },
     {
+      "id": 8,
+      "type": "streetFight",
+      "label": "Gang street fight — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 321,
+      "clock": "20:30",
+      "endedAt": 339,
+      "outcome": "failed",
+      "detail": "Tidewater won the fight; several hurt"
+    },
+    {
+      "id": 9,
+      "type": "getaway",
+      "label": "Getaway car chase — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 359,
+      "clock": "20:30",
+      "endedAt": 396,
+      "outcome": "escaped",
+      "detail": "the suspects fled"
+    },
+    {
+      "id": 10,
+      "type": "mugging",
+      "label": "Mugging — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 401,
+      "clock": "20:30",
+      "endedAt": 456,
+      "outcome": "failed",
+      "detail": "the victim was beaten and robbed"
+    },
+    {
+      "id": 11,
+      "type": "shopRobbery",
+      "label": "Shop robbery — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 431,
+      "clock": "20:30",
+      "endedAt": 501,
+      "outcome": "escaped",
+      "detail": "the shopkeeper was hurt, the robbers escaped with the till"
+    },
+    {
+      "id": 12,
+      "type": "mugging",
+      "label": "Mugging — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 480,
+      "clock": "20:30",
+      "endedAt": 535,
+      "outcome": "failed",
+      "detail": "the victim was beaten and robbed"
+    },
+    {
+      "id": 13,
+      "type": "arson",
+      "label": "Arson — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 524,
+      "clock": "20:30",
+      "endedAt": 584,
+      "outcome": "failed",
+      "detail": "the building burnt"
+    },
+    {
+      "id": 14,
+      "type": "shopRobbery",
+      "label": "Shop robbery — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 552,
+      "clock": "20:30",
+      "endedAt": 622,
+      "outcome": "escaped",
+      "detail": "the shopkeeper was hurt, the robbers escaped with the till"
+    },
+    {
       "id": 15,
       "type": "mugging",
-      "label": "Mugging — Vellmoor Park",
-      "gang": "Tidewater Crew",
-      "district": "Vellmoor Park",
-      "startedAt": 571,
+      "label": "Mugging — Midtown",
+      "gang": "Velvet Hand",
+      "district": "Midtown",
+      "startedAt": 593,
       "clock": "20:30",
-      "endedAt": 612,
+      "endedAt": 638,
       "outcome": "police",
       "detail": "1 arrested by Vellmoor PD"
     },
     {
       "id": 16,
-      "type": "mugging",
-      "label": "Mugging — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 597,
+      "type": "streetFight",
+      "label": "Gang street fight — Northside Hills",
+      "gang": "Ashline Syndicate",
+      "district": "Northside Hills",
+      "startedAt": 622,
       "clock": "20:30",
-      "endedAt": 652,
+      "endedAt": 629,
       "outcome": "failed",
-      "detail": "the victim was beaten and robbed"
+      "detail": "Ashline won the fight; several hurt"
     },
     {
       "id": 17,
-      "type": "streetFight",
-      "label": "Gang street fight — Midtown",
-      "gang": "Velvet Hand",
-      "district": "Midtown",
-      "startedAt": 621,
-      "clock": "20:30",
-      "endedAt": 636,
-      "outcome": "failed",
-      "detail": "Velvet Hand won the fight; several hurt"
-    },
-    {
-      "id": 18,
-      "type": "carTheft",
-      "label": "Car theft — Northside Hills",
+      "type": "arson",
+      "label": "Arson — Old Town",
       "gang": "Ashline Syndicate",
-      "district": "Northside Hills",
-      "startedAt": 655,
+      "district": "Old Town",
+      "startedAt": 654,
       "clock": "20:30"
     }
   ],
   "byOutcome": {
-    "police": 4,
+    "escaped": 6,
     "failed": 7,
-    "escaped": 6
+    "police": 3
   },
   "types": [
     "carTheft",
     "mugging",
     "getaway",
-    "shopRobbery",
     "streetFight",
+    "shopRobbery",
     "arson"
   ],
   "territory": {
@@ -238,14 +226,14 @@
       "ashline": 80
     },
     "midtown": {
-      "velvet": 100
+      "velvet": 96
     },
     "oldtown": {
       "velvet": 45,
       "ashline": 25
     },
     "park": {
-      "tidewater": 36
+      "tidewater": 35
     },
     "hills": {
       "ashline": 35
@@ -254,8 +242,8 @@
       "tidewater": 15
     }
   },
-  "shotsFired": 179,
-  "criminalsCollected": 7,
+  "shotsFired": 83,
+  "criminalsCollected": 4,
   "samples": [
     {
       "t": 10,
@@ -274,408 +262,408 @@
     {
       "t": 30,
       "active": 2,
-      "units": 1,
+      "units": 0,
       "fighters": 4,
-      "aiCars": 2
+      "aiCars": 1
     },
     {
       "t": 40,
       "active": 2,
       "units": 1,
-      "fighters": 6,
+      "fighters": 3,
       "aiCars": 2
     },
     {
       "t": 50,
-      "active": 2,
+      "active": 3,
       "units": 1,
-      "fighters": 6,
+      "fighters": 4,
       "aiCars": 2
     },
     {
       "t": 60,
-      "active": 1,
+      "active": 3,
       "units": 1,
-      "fighters": 6,
+      "fighters": 4,
       "aiCars": 2
     },
     {
       "t": 70,
-      "active": 2,
+      "active": 3,
       "units": 1,
-      "fighters": 6,
+      "fighters": 4,
       "aiCars": 2
     },
     {
       "t": 80,
-      "active": 2,
-      "units": 0,
-      "fighters": 4,
-      "aiCars": 1
-    },
-    {
-      "t": 90,
-      "active": 1,
+      "active": 3,
       "units": 1,
       "fighters": 4,
       "aiCars": 2
     },
     {
-      "t": 100,
-      "active": 1,
-      "units": 0,
+      "t": 90,
+      "active": 2,
+      "units": 2,
       "fighters": 2,
-      "aiCars": 1
+      "aiCars": 3
+    },
+    {
+      "t": 100,
+      "active": 2,
+      "units": 4,
+      "fighters": 4,
+      "aiCars": 6
     },
     {
       "t": 110,
       "active": 1,
-      "units": 1,
-      "fighters": 2,
-      "aiCars": 2
+      "units": 4,
+      "fighters": 3,
+      "aiCars": 6
     },
     {
       "t": 120,
-      "active": 2,
-      "units": 2,
-      "fighters": 4,
-      "aiCars": 4
+      "active": 1,
+      "units": 3,
+      "fighters": 1,
+      "aiCars": 5
     },
     {
       "t": 130,
       "active": 1,
-      "units": 1,
-      "fighters": 2,
-      "aiCars": 3
+      "units": 2,
+      "fighters": 1,
+      "aiCars": 4
     },
     {
       "t": 140,
-      "active": 1,
-      "units": 1,
-      "fighters": 2,
-      "aiCars": 3
+      "active": 2,
+      "units": 2,
+      "fighters": 7,
+      "aiCars": 4
     },
     {
       "t": 150,
-      "active": 1,
-      "units": 0,
-      "fighters": 3,
-      "aiCars": 1
+      "active": 0,
+      "units": 2,
+      "fighters": 6,
+      "aiCars": 4
     },
     {
       "t": 160,
-      "active": 1,
-      "units": 0,
-      "fighters": 3,
-      "aiCars": 1
+      "active": 0,
+      "units": 2,
+      "fighters": 6,
+      "aiCars": 4
     },
     {
       "t": 170,
-      "active": 1,
-      "units": 0,
-      "fighters": 3,
-      "aiCars": 1
+      "active": 0,
+      "units": 2,
+      "fighters": 6,
+      "aiCars": 4
     },
     {
       "t": 180,
       "active": 1,
-      "units": 0,
-      "fighters": 3,
-      "aiCars": 1
+      "units": 2,
+      "fighters": 8,
+      "aiCars": 4
     },
     {
       "t": 190,
       "active": 1,
       "units": 2,
-      "fighters": 3,
+      "fighters": 7,
       "aiCars": 3
     },
     {
       "t": 200,
-      "active": 2,
-      "units": 2,
-      "fighters": 11,
-      "aiCars": 3
+      "active": 1,
+      "units": 4,
+      "fighters": 7,
+      "aiCars": 5
     },
     {
       "t": 210,
-      "active": 1,
-      "units": 2,
+      "active": 0,
+      "units": 4,
       "fighters": 9,
-      "aiCars": 3
+      "aiCars": 5
     },
     {
       "t": 220,
       "active": 1,
-      "units": 1,
-      "fighters": 8,
-      "aiCars": 2
+      "units": 4,
+      "fighters": 9,
+      "aiCars": 6
     },
     {
       "t": 230,
       "active": 1,
-      "units": 1,
+      "units": 3,
       "fighters": 7,
-      "aiCars": 2
+      "aiCars": 5
     },
     {
       "t": 240,
       "active": 1,
-      "units": 1,
-      "fighters": 7,
-      "aiCars": 1
+      "units": 3,
+      "fighters": 2,
+      "aiCars": 4
     },
     {
       "t": 250,
       "active": 1,
-      "units": 1,
-      "fighters": 7,
-      "aiCars": 1
+      "units": 3,
+      "fighters": 2,
+      "aiCars": 4
     },
     {
       "t": 260,
-      "active": 1,
-      "units": 2,
-      "fighters": 7,
-      "aiCars": 2
+      "active": 2,
+      "units": 4,
+      "fighters": 9,
+      "aiCars": 5
     },
     {
       "t": 270,
-      "active": 1,
-      "units": 2,
+      "active": 2,
+      "units": 3,
       "fighters": 9,
-      "aiCars": 3
+      "aiCars": 4
     },
     {
       "t": 280,
       "active": 1,
-      "units": 1,
-      "fighters": 9,
-      "aiCars": 2
+      "units": 3,
+      "fighters": 7,
+      "aiCars": 4
     },
     {
       "t": 290,
       "active": 1,
-      "units": 0,
+      "units": 3,
       "fighters": 7,
-      "aiCars": 1
+      "aiCars": 4
     },
     {
       "t": 300,
       "active": 2,
-      "units": 1,
-      "fighters": 4,
-      "aiCars": 2
+      "units": 5,
+      "fighters": 7,
+      "aiCars": 7
     },
     {
       "t": 310,
-      "active": 2,
-      "units": 1,
-      "fighters": 2,
-      "aiCars": 2
+      "active": 1,
+      "units": 5,
+      "fighters": 7,
+      "aiCars": 7
     },
     {
       "t": 320,
       "active": 1,
-      "units": 1,
-      "fighters": 2,
-      "aiCars": 1
+      "units": 5,
+      "fighters": 7,
+      "aiCars": 7
     },
     {
       "t": 330,
-      "active": 1,
-      "units": 2,
-      "fighters": 2,
-      "aiCars": 2
+      "active": 0,
+      "units": 4,
+      "fighters": 9,
+      "aiCars": 6
     },
     {
       "t": 340,
-      "active": 2,
-      "units": 2,
-      "fighters": 5,
-      "aiCars": 2
+      "active": 1,
+      "units": 4,
+      "fighters": 11,
+      "aiCars": 6
     },
     {
       "t": 350,
-      "active": 2,
-      "units": 2,
-      "fighters": 5,
-      "aiCars": 2
+      "active": 1,
+      "units": 4,
+      "fighters": 11,
+      "aiCars": 6
     },
     {
       "t": 360,
       "active": 1,
       "units": 2,
-      "fighters": 3,
-      "aiCars": 2
+      "fighters": 9,
+      "aiCars": 4
     },
     {
       "t": 370,
       "active": 2,
-      "units": 6,
-      "fighters": 7,
-      "aiCars": 7
+      "units": 2,
+      "fighters": 8,
+      "aiCars": 4
     },
     {
       "t": 380,
       "active": 2,
-      "units": 6,
-      "fighters": 7,
-      "aiCars": 7
+      "units": 3,
+      "fighters": 8,
+      "aiCars": 5
     },
     {
       "t": 390,
       "active": 1,
-      "units": 6,
-      "fighters": 4,
-      "aiCars": 7
+      "units": 3,
+      "fighters": 8,
+      "aiCars": 5
     },
     {
       "t": 400,
-      "active": 2,
-      "units": 7,
-      "fighters": 2,
-      "aiCars": 9
+      "active": 1,
+      "units": 4,
+      "fighters": 5,
+      "aiCars": 5
     },
     {
       "t": 410,
-      "active": 2,
-      "units": 5,
-      "fighters": 0,
-      "aiCars": 7
+      "active": 1,
+      "units": 4,
+      "fighters": 7,
+      "aiCars": 5
     },
     {
       "t": 420,
       "active": 2,
-      "units": 5,
-      "fighters": 0,
-      "aiCars": 7
+      "units": 4,
+      "fighters": 6,
+      "aiCars": 4
     },
     {
       "t": 430,
       "active": 2,
       "units": 4,
-      "fighters": 0,
-      "aiCars": 6
-    },
-    {
-      "t": 440,
-      "active": 3,
-      "units": 4,
-      "fighters": 6,
-      "aiCars": 6
-    },
-    {
-      "t": 450,
-      "active": 0,
-      "units": 2,
       "fighters": 6,
       "aiCars": 4
     },
     {
+      "t": 440,
+      "active": 1,
+      "units": 3,
+      "fighters": 2,
+      "aiCars": 3
+    },
+    {
+      "t": 450,
+      "active": 1,
+      "units": 3,
+      "fighters": 2,
+      "aiCars": 3
+    },
+    {
       "t": 460,
-      "active": 0,
-      "units": 2,
-      "fighters": 6,
+      "active": 2,
+      "units": 4,
+      "fighters": 4,
       "aiCars": 4
     },
     {
       "t": 470,
-      "active": 0,
-      "units": 2,
-      "fighters": 6,
+      "active": 1,
+      "units": 4,
+      "fighters": 5,
       "aiCars": 4
     },
     {
       "t": 480,
       "active": 1,
-      "units": 4,
-      "fighters": 6,
-      "aiCars": 7
+      "units": 3,
+      "fighters": 3,
+      "aiCars": 3
     },
     {
       "t": 490,
-      "active": 1,
-      "units": 4,
-      "fighters": 6,
-      "aiCars": 7
+      "active": 2,
+      "units": 3,
+      "fighters": 5,
+      "aiCars": 3
     },
     {
       "t": 500,
-      "active": 1,
-      "units": 4,
-      "fighters": 6,
-      "aiCars": 7
+      "active": 2,
+      "units": 3,
+      "fighters": 5,
+      "aiCars": 3
     },
     {
       "t": 510,
       "active": 2,
-      "units": 4,
-      "fighters": 7,
-      "aiCars": 7
+      "units": 3,
+      "fighters": 5,
+      "aiCars": 3
     },
     {
       "t": 520,
-      "active": 2,
-      "units": 4,
-      "fighters": 7,
-      "aiCars": 7
+      "active": 1,
+      "units": 5,
+      "fighters": 3,
+      "aiCars": 5
     },
     {
       "t": 530,
-      "active": 3,
-      "units": 4,
-      "fighters": 8,
-      "aiCars": 7
+      "active": 2,
+      "units": 5,
+      "fighters": 3,
+      "aiCars": 5
     },
     {
       "t": 540,
-      "active": 3,
+      "active": 2,
       "units": 5,
-      "fighters": 4,
-      "aiCars": 6
+      "fighters": 3,
+      "aiCars": 5
     },
     {
       "t": 550,
       "active": 2,
-      "units": 5,
+      "units": 4,
       "fighters": 3,
-      "aiCars": 6
+      "aiCars": 4
     },
     {
       "t": 560,
-      "active": 3,
-      "units": 5,
-      "fighters": 9,
-      "aiCars": 6
+      "active": 1,
+      "units": 4,
+      "fighters": 7,
+      "aiCars": 4
     },
     {
       "t": 570,
-      "active": 2,
+      "active": 0,
       "units": 5,
-      "fighters": 7,
-      "aiCars": 6
+      "fighters": 6,
+      "aiCars": 5
     },
     {
       "t": 580,
-      "active": 1,
+      "active": 0,
       "units": 5,
-      "fighters": 8,
-      "aiCars": 6
+      "fighters": 5,
+      "aiCars": 5
     },
     {
       "t": 590,
       "active": 1,
-      "units": 5,
-      "fighters": 10,
-      "aiCars": 7
+      "units": 4,
+      "fighters": 5,
+      "aiCars": 4
     },
     {
       "t": 600,
       "active": 1,
-      "units": 5,
-      "fighters": 10,
-      "aiCars": 7
+      "units": 4,
+      "fighters": 5,
+      "aiCars": 4
     }
   ]
 }
