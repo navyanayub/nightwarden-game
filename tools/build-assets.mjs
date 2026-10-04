@@ -45,12 +45,7 @@ async function textures() {
     }
     console.log('texture', id);
   }
-  const hdrDir = path.join(OUT, 'hdri');
-  mk(hdrDir);
-  for (const f of fs.readdirSync(path.join(RAW, 'polyhaven', 'hdri'))) {
-    fs.copyFileSync(path.join(RAW, 'polyhaven', 'hdri', f), path.join(hdrDir, f));
-    console.log('hdri', f);
-  }
+  // Stage 2: image-based lighting comes from the dynamic sky probe, so no HDRI is shipped.
 }
 
 // ---------------------------------------------------------------- props
@@ -191,6 +186,19 @@ async function crowd() {
   }
 }
 
+// ---------------------------------------------------------------- audio
+/** Kenney Impact Sounds (CC0): footsteps per surface + crash impacts, copied as OGG. */
+async function audio() {
+  const src = path.join(RAW, 'kenney', 'impact', 'Audio');
+  const dst = path.join(OUT, 'audio');
+  mk(dst);
+  const want = [];
+  for (const surf of ['concrete', 'grass', 'wood', 'snow']) for (let i = 0; i < 5; i++) want.push(`footstep_${surf}_00${i}.ogg`);
+  for (let i = 0; i < 3; i++) want.push(`impactMetal_heavy_00${i}.ogg`, `impactGlass_medium_00${i}.ogg`, `impactPlate_heavy_00${i}.ogg`);
+  for (const f of want) fs.copyFileSync(path.join(src, f), path.join(dst, f));
+  console.log('audio', want.length, 'files');
+}
+
 // ---------------------------------------------------------------- animations
 const KEEP_ANIMS = [
   'Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Driving_Loop', 'Interact',
@@ -231,7 +239,7 @@ async function animations() {
   console.log('animations', root.listAnimations().map((a) => a.getName()).join(', '), 'pelvis ratio', ratio.toFixed(3));
 }
 
-const steps = { textures, props, character, crowd, animations };
+const steps = { textures, props, character, crowd, animations, audio };
 for (const [name, fn] of Object.entries(steps)) {
   if (only && only !== name) continue;
   await fn();

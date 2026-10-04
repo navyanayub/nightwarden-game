@@ -89,6 +89,10 @@ export class Weather {
   bolt: { x: number; z: number; dist: number; time: number; seed: number } | null = null;
   /** 0..1 harbour fog bank strength (dawn). */
   fogBank = 0;
+  /** Test override for the fog bank. */
+  bankOverride: number | null = null;
+  /** Test: keep the last lightning flash (and its bolt) lit at this brightness. */
+  holdFlash: number | null = null;
 
   constructor() {
     const w = new URLSearchParams(location.search).get('weather') as WeatherState | null;
@@ -101,7 +105,7 @@ export class Weather {
     this.nextChange = 2 + hashFloat(clock.day, Math.floor(clock.hours * 10), 31) * 3;
     if (instant) {
       Object.assign(this.p, this.target);
-      if (this.p.rain > 0.2) this.wetness = Math.min(1, this.p.rain + 0.3);
+      this.wetness = this.p.rain > 0.2 ? Math.min(1, this.p.rain + 0.3) : 0;
     }
     this.blendRate = instant ? 100 : 0.6;
     events.emit('weather:change', { state });
@@ -131,7 +135,8 @@ export class Weather {
         }
       }
       this.set(pick);
-      this.blendRate = 0.6 * Math.max(1, clock.rate * 60);
+      // ~20 s real-time blend (faster while fast-forwarding).
+      this.blendRate = 0.2 * Math.max(1, clock.rate * 60);
     }
     // Ease every parameter: the time constant is in real seconds (~1/rate * 4).
     const k = 1 - Math.exp(-dt * this.blendRate * 0.25);
@@ -155,7 +160,11 @@ export class Weather {
         this.flashQueue.splice(i, 1);
       }
     }
-    if (this.p.lightning > 0.5) {
+    if (this.holdFlash !== null && this.bolt) {
+      this.flash = this.holdFlash;
+      this.bolt.time = this.t;
+    }
+    if (this.p.lightning > 0.5 && this.holdFlash === null) {
       this.lightningTimer -= dt;
       if (this.lightningTimer <= 0) {
         this.strike(camX, camZ);
@@ -168,6 +177,7 @@ export class Weather {
     const today = hashFloat(clock.day, 404) < 0.75 ? 1 : 0.25;
     const target = Math.max(dawn * today * (1 - this.p.rain), this.state === 'fog' ? 0.9 : 0);
     this.fogBank += (target - this.fogBank) * (1 - Math.exp(-dt * 0.2));
+    if (this.bankOverride !== null) this.fogBank = this.bankOverride;
   }
 
   /** Trigger a lightning strike somewhere around the camera (also used by tests). */

@@ -40,6 +40,15 @@ export class EnvironmentSystem {
     renderer.scene.add(this.fx.group);
   }
 
+  get wetness(): number {
+    return weather.wetness;
+  }
+
+  /** Force the harbour fog bank (tests / screenshots); null releases it. */
+  forceFogBank(v: number | null): void {
+    weather.bankOverride = v;
+  }
+
   update(dt: number, focus: THREE.Vector3, drivingCam: boolean, paused: boolean): void {
     if (!paused) {
       clock.update(dt);

@@ -123,7 +123,7 @@ export class NightLights {
         varying vec2 vUv; varying vec3 vCol; varying float vFade;
         void main() {
           float a = texture2D(uTex, vUv).r;
-          gl_FragColor = vec4(vCol * a * a * a * 0.055 * uNight * vFade * (1.0 + uWet * 0.8), 1.0);
+          gl_FragColor = vec4(vCol * vec3(1.0, 0.78, 0.5) * a * a * a * 0.028 * uNight * vFade * (1.0 + uWet * 0.8), 1.0);
         }`,
     });
     const pools = new THREE.Mesh(quad, this.poolMat);

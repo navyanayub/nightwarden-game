@@ -237,13 +237,13 @@ export const LAMP_KEYS: Record<string, number> = {
 };
 
 /** Emit a full vehicle body into a MeshBuilder (keys: car_paint, car_glass, car_trim, car_black...). */
-export function buildBody(spec: VehicleSpec, mb: MeshBuilder): { seat: THREE.Vector3 } {
+export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false): { seat: THREE.Vector3 } {
   const sh = new Shape(spec);
   const L = sh.L;
   const s = spec;
   // ---------------------------------------------------------------- body loft
   const stations: number[] = [];
-  const step = s.kind === 'bus' ? 0.09 : 0.045;
+  const step = (s.kind === 'bus' ? 0.09 : 0.045) * (lowDetail ? 2.4 : 1);
   for (let z = -L; z <= L + 1e-6; z += step) stations.push(Math.min(z, L));
   if (stations[stations.length - 1] < L) stations.push(L);
   const secs = stations.map((z) => sh.section(z));
@@ -473,7 +473,8 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder): { seat: THREE.Vec
 }
 
 /** Wheel (tyre, rim, spokes, disc) with its axle along X, outer face +X, centred at origin. */
-export function buildWheel(radius: number, mb: MeshBuilder, heavy = false): void {
+export function buildWheel(radius: number, mb: MeshBuilder, heavy = false, lowDetail = false): void {
+  const seg = lowDetail ? 14 : 32;
   const k = radius / 0.34;
   const R = radius;
   const wd = heavy ? 1.35 : 1;
@@ -492,19 +493,21 @@ export function buildWheel(radius: number, mb: MeshBuilder, heavy = false): void
   ];
   const rot = new THREE.Matrix4().makeRotationZ(-Math.PI / 2);
   mb.pushTransform(rot);
-  mb.lathe('car_tyre', 0, 0, tyre, 32);
-  mb.lathe('car_rim', 0, 0, [[0.235 * k, 0.112 * wd], [0.24 * k, 0.1 * wd], [0.232 * k, 0.08 * wd], [0.225 * k, -0.09 * wd], [0.21 * k, -0.1 * wd]], 24);
-  mb.lathe('car_rim', 0, 0, [[0.2 * k, 0.06 * wd], [0.07 * k, 0.085 * wd], [0.06 * k, 0.1 * wd], [0.0, 0.1 * wd]], 20, { capTop: true });
-  const spokes = heavy ? 8 : 10;
+  mb.lathe('car_tyre', 0, 0, lowDetail ? tyre.filter((_, i) => i % 2 === 0 || i === 5) : tyre, seg);
+  mb.lathe('car_rim', 0, 0, [[0.235 * k, 0.112 * wd], [0.24 * k, 0.1 * wd], [0.232 * k, 0.08 * wd], [0.225 * k, -0.09 * wd], [0.21 * k, -0.1 * wd]], lowDetail ? 12 : 24);
+  mb.lathe('car_rim', 0, 0, [[0.2 * k, 0.06 * wd], [0.07 * k, 0.085 * wd], [0.06 * k, 0.1 * wd], [0.0, 0.1 * wd]], lowDetail ? 10 : 20, { capTop: true });
+  const spokes = lowDetail ? 5 : heavy ? 8 : 10;
   for (let i = 0; i < spokes; i++) {
     const a = (i / spokes) * Math.PI * 2 + (i % 2) * 0.12;
     mb.beam('car_rim', [Math.cos(a) * 0.06 * k, 0.088 * wd, Math.sin(a) * 0.06 * k], [Math.cos(a) * 0.222 * k, 0.075 * wd, Math.sin(a) * 0.222 * k], 0.026 * k, { height: 0.035 });
   }
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    mb.cylinder('car_chrome', Math.cos(a) * 0.04 * k, 0.1 * wd, Math.sin(a) * 0.04 * k, 0.009, 0.009, 0.012, 6);
+  if (!lowDetail) {
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      mb.cylinder('car_chrome', Math.cos(a) * 0.04 * k, 0.1 * wd, Math.sin(a) * 0.04 * k, 0.009, 0.009, 0.012, 6);
+    }
+    mb.lathe('car_disc', 0, 0, [[0.19 * k, -0.02], [0.19 * k, 0.02], [0.06 * k, 0.02], [0.06 * k, -0.02]], 24);
   }
-  mb.lathe('car_disc', 0, 0, [[0.19 * k, -0.02], [0.19 * k, 0.02], [0.06 * k, 0.02], [0.06 * k, -0.02]], 24);
   mb.box('car_caliper', 0.12 * k, -0.04, -0.06, 0.2 * k, 0.035, 0.06);
   mb.popTransform();
 }
@@ -573,7 +576,7 @@ export function vehicleMaterials(color: THREE.Color) {
   const byKey: Record<string, THREE.Material> = {
     car_paint: paint,
     car_glass: new THREE.MeshPhysicalMaterial({ color: 0x0b0f12, metalness: 0.0, roughness: 0.02, transparent: true, opacity: 0.55, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide }),
-    car_glass_mirror: new THREE.MeshStandardMaterial({ color: 0xbfcad0, metalness: 1, roughness: 0.02 }),
+    car_glass_mirror: new THREE.MeshStandardMaterial({ color: 0x7d878d, metalness: 1, roughness: 0.12 }),
     car_trim: new THREE.MeshStandardMaterial({ color: 0x0c0d0e, roughness: 0.35, metalness: 0.3 }),
     car_black: new THREE.MeshStandardMaterial({ color: 0x101112, roughness: 0.6, metalness: 0.1 }),
     car_chrome: new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.08, metalness: 1 }),

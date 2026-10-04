@@ -38,12 +38,12 @@ float fogBank(vec3 ro, vec3 rd, float dist) {
     vec3 p = ro + rd * (j + stepL * float(i));
     vec2 q = (p.xz - uBankArea.xy) / uBankArea.zw;
     float area = 1.0 - smoothstep(0.55, 1.0, length(q));
-    float h = exp(-max(p.y - 1.0, 0.0) / 9.0);
+    float h = exp(-max(p.y - 1.0, 0.0) / 20.0);
     vec2 np = p.xz * 0.006 + uBankDrift;
     float n = fbN(np) * 0.6 + fbN(np * 2.3 + 4.1) * 0.4;
-    od += area * h * smoothstep(0.3, 0.75, n) * stepL;
+    od += area * h * smoothstep(0.22, 0.7, n) * stepL;
   }
-  return od * 0.012 * uBank;
+  return od * 0.016 * uBank;
 }
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
@@ -90,7 +90,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 
 export class FogEffect extends Effect {
   constructor() {
-    super('HeightFogEffect', (new URLSearchParams(location.search).has('fogdbg') ? '#define FOG_DEBUG\n' : '') + fragment, {
+    const q = new URLSearchParams(location.search);
+    super('HeightFogEffect', (q.has('fogdbg') ? '#define FOG_DEBUG\n' : '') + fragment, {
       blendFunction: BlendFunction.NORMAL,
       attributes: EffectAttribute.DEPTH,
       uniforms: new Map<string, THREE.Uniform>([

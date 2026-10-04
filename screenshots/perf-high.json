@@ -1,0 +1,15 @@
+{
+  "preset": "high",
+  "avgFps": 16.31,
+  "cpuUpdateMs": 3.73,
+  "trafficMs": 0.72,
+  "crowdMs": 0.36,
+  "renderSubmitMs": 930.5,
+  "cars": 72,
+  "carsOnScreen": 43,
+  "peds": 151,
+  "pedsDrawn": 44,
+  "drawCalls": 622,
+  "triangles": 4345892,
+  "simSeconds": 0.5
+}

@@ -80,7 +80,8 @@ export class TrafficRender {
   constructor(readonly capacity: number) {
     this.group.name = 'Traffic';
     this.paintMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.5, roughness: 0.3 });
-    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x0a0d10, metalness: 0.3, roughness: 0.05 });
+    // Tinted, semi-transparent so drivers and seats show through.
+    this.glassMat = new THREE.MeshStandardMaterial({ color: 0x0a0d10, metalness: 0.3, roughness: 0.05, transparent: true, opacity: 0.62, depthWrite: false });
     this.trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.42 });
     this.wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.5, roughness: 0.55 });
     this.lampMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.25, emissive: 0xffffff });
@@ -152,7 +153,7 @@ export class TrafficRender {
   private buildKind(kind: VehicleKind): KindMeshes {
     const spec = SPECS[kind];
     const mb = new MeshBuilder();
-    buildBody(spec, mb);
+    buildBody(spec, mb, true);
     const geo = (k: string) => {
       const b = mb.buffers.get(k);
       return b && b.idx.length ? b.toGeometry() : null;
@@ -175,7 +176,7 @@ export class TrafficRender {
     const trimG = colored(trimList)!;
     const lampG = colored(lampList)!;
     const wmb = new MeshBuilder();
-    buildWheel(spec.wheelRadius, wmb, kind === 'bus' || kind === 'van');
+    buildWheel(spec.wheelRadius, wmb, kind === 'bus' || kind === 'van', true);
     const wheelList: { g: THREE.BufferGeometry; c: [number, number, number] }[] = [];
     for (const [k, b] of wmb.buffers) wheelList.push({ g: b.toGeometry(), c: PART_COLORS[k] ?? [0.1, 0.1, 0.1] });
     const wheelG = colored(wheelList)!;
@@ -208,6 +209,13 @@ export class TrafficRender {
       [-spec.track / 2, spec.wheelRadius, spec.rearAxle],
     ];
     return { paint, glass, trim, lamps, wheels, lampAttr, count: 0, wheelPos, radius: spec.wheelRadius };
+  }
+
+  /** Triangles per car (paint + glass + trim + lamps + 4 wheels), for budgeting. */
+  triangles(kind: number): number {
+    const K = this.kinds[kind];
+    const t = (m: THREE.InstancedMesh) => (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
+    return t(K.paint) + t(K.glass) + t(K.trim) + t(K.lamps) + 4 * t(K.wheels);
   }
 
   /** Upload all visible cars for this frame. */

@@ -788,7 +788,9 @@ export class Crowd {
             const fx = Math.sin(bus.yaw);
             const fz = Math.cos(bus.yaw);
             const door = bus.spec.length / 2 - 0.95;
-            p.spot = { x: bus.x + fx * door - fz * -(bus.spec.width / 2 + 0.3), z: bus.z + fz * door + fx * -(bus.spec.width / 2 + 0.3), yaw: 0, clip: walkClip };
+            // Doors are on the kerb (right-hand) side.
+            const side = bus.spec.width / 2 + 0.3;
+            p.spot = { x: bus.x + fx * door - fz * side, z: bus.z + fz * door + fx * side, yaw: 0, clip: walkClip };
             p.timer = 4;
           }
         }

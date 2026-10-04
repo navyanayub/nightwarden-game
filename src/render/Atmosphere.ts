@@ -93,7 +93,7 @@ void main() {
     vec3 ambient = Lin * 0.04 + vec3(0.0, 0.0003, 0.00075);
     vec3 cloudCol = ambient * 1.3 + sunCol * shade + sunCol * silver * edge * 0.6;
     alpha = (1.0 - exp(-depthC * uCloudDensity * 12.0)) * horizonFade;
-    alpha = max(alpha, uCloudCoverage > 0.97 ? horizonFade * 0.97 : 0.0);
+    alpha = max(alpha, smoothstep(0.82, 1.0, uCloudCoverage) * horizonFade * 0.96);
     col = mix(col, mix(col, cloudCol, Fex), alpha);
   }
   // Below the horizon: fade into a hazy sea-level colour (hidden by the ocean anyway).
@@ -101,7 +101,7 @@ void main() {
 
   vec3 outCol = skyWeather(col * uSkyExposure, dir, uOvercast * mix(0.75, 1.0, uProbe));
   // Night: clouds catch the orange glow of the city lights from below.
-  outCol += uCityGlow * 1.6 * alpha * (0.4 + 0.6 * (1.0 - clamp(dir.y * 1.5, 0.0, 1.0)));
+  outCol += uCityGlow * 1.0 * alpha * (0.4 + 0.6 * (1.0 - clamp(dir.y * 1.5, 0.0, 1.0)));
 
   // Stars (rotating slowly) and the moon, hidden by cloud.
   float clear = (1.0 - alpha) * (1.0 - uOvercast);
@@ -152,7 +152,7 @@ export class Atmosphere {
   /** Scene exposure (eye adaptation): brighter at night. */
   exposure = 0.5;
   /** Base IBL strength (the probe already contains the time-of-day / weather colour). */
-  envIntensity = 0.42;
+  envIntensity = 0.62;
   private shadowRadius = 100;
   private probe: {
     scene: THREE.Scene;
@@ -290,12 +290,14 @@ export class Atmosphere {
     u.uSkyBright.value = 1 - 0.5 * overcast - 0.15 * wp.rain;
     u.uCloudCoverage.value = wp.clouds;
     u.uCloudDensity.value = wp.cloudDensity;
-    u.uTurbidity.value = 2.4 + overcast * 3;
+    // Hazier, redder sky around sunrise / sunset.
+    u.uTurbidity.value = 2.4 + overcast * 3 + clock.golden * 2.6;
+    u.uRayleigh.value = 1.3 + clock.golden * 0.9;
     const night = clock.night;
     const moonUp = THREE.MathUtils.smoothstep(this.moonDir.y, -0.05, 0.25);
     // Night sky: deep blue zenith (brighter with the moon up), warm city glow on the horizon.
-    (u.uNightSky.value as THREE.Color).setRGB(0.0016, 0.0032, 0.0085).multiplyScalar(night * (0.7 + 0.6 * moonUp) * (1 - overcast * 0.4));
-    (u.uCityGlow.value as THREE.Color).setRGB(0.024, 0.013, 0.006).multiplyScalar(night * (1 + overcast * 1.4 + wp.fog * 0.05));
+    (u.uNightSky.value as THREE.Color).setRGB(0.0024, 0.0046, 0.012).multiplyScalar(night * (0.7 + 0.6 * moonUp) * (1 - overcast * 0.4));
+    (u.uCityGlow.value as THREE.Color).setRGB(0.02, 0.011, 0.0055).multiplyScalar(night * (1 + overcast * 0.35 + Math.min(wp.fog, 4) * 0.03));
     u.uStars.value = night * (1 - overcast);
     u.uStarRot.value = (clock.hours / 24) * Math.PI * 2 * 0.25;
     u.uFlash.value = weather.flash * 0.35;
@@ -303,7 +305,7 @@ export class Atmosphere {
     const sunUp = THREE.MathUtils.smoothstep(this.sunDir.y, -0.03, 0.1);
     const cloudDim = 1 - 0.82 * overcast;
     const sunI = 4.2 * sunUp * cloudDim;
-    const moonI = 0.28 * moonUp * (1 - 0.85 * overcast) * night;
+    const moonI = 0.42 * moonUp * (1 - 0.85 * overcast) * night;
     if (sunI >= moonI) {
       this.lightDir.copy(this.sunDir);
       const warm = THREE.MathUtils.clamp(1 - this.sunDir.y / 0.55, 0, 1);
@@ -328,8 +330,10 @@ export class Atmosphere {
     g.setRGB(0.07, 0.068, 0.062).multiplyScalar(this.sun.intensity * Math.max(this.lightDir.y, 0) * 0.32 + 0.02);
     g.add(new THREE.Color(0.02, 0.014, 0.008).multiplyScalar(night));
     // Eye adaptation.
+    // Eye adaptation follows how high the sun is (evenings open up gradually).
     const dl = clock.daylight;
-    this.exposure = THREE.MathUtils.lerp(1.9, 0.5, Math.pow(dl, 0.6)) * (1 + 0.25 * overcast * dl);
+    const sunH = THREE.MathUtils.smoothstep(this.sunDir.y, -0.1, 0.55);
+    this.exposure = THREE.MathUtils.lerp(1.9, 0.5, sunH) * (1 + 0.3 * overcast * dl);
   }
 
   update(dt: number, focus: THREE.Vector3, fog: FogEffect | undefined, renderer: THREE.WebGLRenderer): void {

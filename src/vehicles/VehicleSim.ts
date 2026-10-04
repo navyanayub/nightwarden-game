@@ -68,6 +68,8 @@ export class VehicleSim {
   braking = false;
   reversing = false;
   speed = 0;
+  /** Sideways speed (m/s), for tyre skid audio. */
+  lateral = 0;
   rpm = 0;
   gear = 1;
   readonly spec: VehicleSpec;
@@ -181,6 +183,7 @@ export class VehicleSim {
     // Traction control: cut drive when the car is sliding sideways (unless drifting on purpose).
     const side = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
     const slip = Math.abs(Math.atan2(v.dot(side), Math.max(Math.abs(fSpeed), 0.5)));
+    this.lateral = Math.abs(v.dot(side));
     const tc = inp.handbrake ? 1 : THREE.MathUtils.clamp(1 - (slip - 0.12) * 2.5, 0.25, 1);
     if (inp.throttle > 0.05) {
       if (fSpeed < -0.8) brake = this.tune.brakeForce * inp.throttle;

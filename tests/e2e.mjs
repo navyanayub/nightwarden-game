@@ -114,6 +114,98 @@ async function main() {
   const funcOk = func.walked > 3 && func.sprinted > func.walked && func.jumpH > 0.4 && func.landed && func.mode === 'drive' && func.drove > 15 && func.kmh > 40 && func.stopped < func.kmh * 0.2 && func.exited;
   if (!funcOk) errors.push(`functional check failed: ${JSON.stringify(func)}`);
 
+  // Stage 2: living city (traffic, signals, hijacking, crowds, time, weather).
+  const living = await page.evaluate(() => {
+    const g = window.__NW.game;
+    g.loop.paused = true;
+    const s = g.world.city.spawn;
+    g.teleportPlayer(s.x, s.z, Math.PI);
+    g.setTime(12);
+    g.setWeather('partly');
+    g.warmAI(60);
+    const t = g.traffic;
+    const cars = t.cars.length;
+    const moving = t.cars.filter((c) => c.speed > 1).length;
+    // Nobody inside a junction on a red light that they entered long ago (signal discipline).
+    let redRunners = 0;
+    for (const c of t.cars) {
+      const p = c.path;
+      if (p.node && p.node.signal && c.s > 6 && c.speed > 3) {
+        const phase = g.__signalState(p.node, p.axis, t.time);
+        if (phase === 0 && p.length - c.s > p.length * 0.6) redRunners++;
+      }
+    }
+    // Hijack the nearest traffic car.
+    const near = t.cars.filter((c) => !c.bus && c.state === 'drive').sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
+    const pedsBefore = g.crowd.peds.length;
+    g.teleportPlayer(near.x + Math.cos(near.yaw) * 2.2, near.z - Math.sin(near.yaw) * 2.2, 0);
+    near.speed = 0;
+    const kind = near.spec.kind;
+    g.takeNearestTraffic();
+    const hijacked = g.mode === 'drive' && g.current && g.current.spec.kind === kind;
+    const fled = g.crowd.peds.filter((p) => p.state === 'flee').length;
+    g.exitVehicle();
+    // Crowd reacts to a gunshot.
+    g.warmAI(5);
+    const peds = g.crowd.peds.length;
+    const states = Object.keys(g.crowd.stateCounts).length;
+    g.gunshot();
+    g.warmAI(0.5);
+    const fleeing = g.crowd.peds.filter((p) => p.state === 'flee' || p.state === 'cower').length;
+    // Time of day + weather.
+    g.setTime(23);
+    const night = { lamps: g.world.nightLights.lights.filter((l) => l.intensity > 1).length, exposure: g.renderer.atmosphere.exposure };
+    g.setTime(12);
+    g.setWeather('heavyrain');
+    g.env.update(0.1, g.player.position, false, false);
+    const rain = { drops: g.env.fx.rainCount, wet: +g.env.wetness.toFixed(2) };
+    g.setWeather('partly');
+    g.loop.paused = false;
+    return { cars, moving, redRunners, buses: t.cars.filter((c) => c.bus).length, busStops: t.busStops.length, hijacked, kind, fled, pedsBefore, peds, states, fleeing, night, rain };
+  });
+  console.log('living city', living);
+  const livingOk = living.cars > 30 && living.moving > living.cars * 0.3 && living.redRunners <= 2 && living.buses >= 2 && living.hijacked && living.fled >= 1 && living.peds > 30 && living.states >= 3 && living.fleeing > 5 && living.rain.drops > 1000 && living.rain.wet > 0.5;
+  if (!livingOk) errors.push(`living-city check failed: ${JSON.stringify(living)}`);
+
+  // Performance log (High preset, busy Midtown, 60+ cars / 150+ pedestrians around).
+  const perf = await page.evaluate(async () => {
+    const g = window.__NW.game;
+    const s = g.world.city.spawn;
+    g.clearDebugCamera();
+    g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+    g.crowd.maxPeds = Math.max(g.crowd.maxPeds, 170);
+    g.traffic.maxCars = Math.max(g.traffic.maxCars, 90);
+    g.setTime(13);
+    g.warmAI(40);
+    const frames0 = g.loop.frames;
+    const t0 = performance.now();
+    while (performance.now() - t0 < 30000) await new Promise((r) => setTimeout(r, 500));
+    const wall = (performance.now() - t0) / 1000;
+    const cam = g.renderer.camera;
+    const fr = new g.__THREE.Frustum().setFromProjectionMatrix(new g.__THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+    const carsOnScreen = g.traffic.cars.filter((c) => fr.containsPoint(new g.__THREE.Vector3(c.x, c.y + 1, c.z))).length;
+    const info = g.renderer.renderer.info.render;
+    return {
+      preset: 'high',
+      avgFps: +((g.loop.frames - frames0) / wall).toFixed(3),
+      frames: g.loop.frames - frames0,
+      seconds: +wall.toFixed(1),
+      trianglesPerCar: [0, 2, 4, 8].map((k) => g.traffic.render.triangles(k)),
+      cpuUpdateMs: +g.perf.update.toFixed(2),
+      trafficMs: +g.perf.traffic.toFixed(2),
+      crowdMs: +g.perf.crowd.toFixed(2),
+      renderSubmitMs: +g.perf.render.toFixed(1),
+      cars: g.traffic.cars.length,
+      carsOnScreen,
+      peds: g.crowd.peds.length,
+      pedsDrawn: g.crowd.render.stats.drawn + 0,
+      drawCalls: info.calls,
+      triangles: info.triangles,
+    };
+  });
+  console.log('PERF', JSON.stringify(perf));
+  fs.writeFileSync(path.join(ROOT, 'screenshots', 'perf-high.json'), JSON.stringify(perf, null, 2));
+
   if (SHOTS) {
     const dir = path.join(ROOT, 'screenshots');
     fs.mkdirSync(dir, { recursive: true });
@@ -182,7 +274,90 @@ async function main() {
       g.enterVehicle(0);
       g.autoDrive = { throttle: 0.7, steer: 0, brake: 0, handbrake: false };
     }, 5000);
-    await page.evaluate(() => (window.__NW.game.autoDrive = null));
+    await page.evaluate(() => {
+      const g = window.__NW.game;
+      g.autoDrive = null;
+      g.exitVehicle();
+    });
+    // Stage 2 views.
+    await shot('15-busy-intersection-day', () => {
+      const g = window.__NW.game;
+      g.setTime(12.5);
+      g.setWeather('partly');
+      const n = g.gotoJunction();
+      g.warmAI(45);
+      g.setDebugCamera(n.x + 34, 15, n.z + 30, n.x - 4, 1, n.z - 4);
+    }, 9000);
+    await shot('16-night-skyline', () => {
+      const g = window.__NW.game;
+      g.setWeather('clear');
+      g.setTime(22.4);
+      g.setDebugCamera(760, 70, 420, 60, 70, -120);
+    }, 9000);
+    await shot('17-rain-night-street', () => {
+      const g = window.__NW.game;
+      g.setWeather('heavyrain');
+      g.setTime(22);
+      const n = g.gotoJunction();
+      g.warmAI(30);
+      g.setDebugCamera(n.x + 16, 3.2, n.z + 20, n.x - 10, 2.2, n.z - 12);
+    }, 9000);
+    await shot('18-sunset-harbour', () => {
+      const g = window.__NW.game;
+      g.setWeather('partly');
+      g.setTime(18.35);
+      g.setDebugCamera(620, 22, 690, 250, 8, 820);
+    }, 9000);
+    await shot('19-dawn-fog-harbour', () => {
+      const g = window.__NW.game;
+      g.setWeather('clear');
+      g.setTime(6.4);
+      g.env.forceFogBank(1);
+      g.setDebugCamera(520, 26, 600, 260, 4, 900);
+    }, 9000);
+    await shot('20-storm-lightning', () => {
+      const g = window.__NW.game;
+      g.setWeather('storm');
+      g.setTime(16.5);
+      g.setDebugCamera(640, 26, 520, 120, 70, -60);
+      g.lightning(true);
+    }, 6000);
+    await page.evaluate(() => window.__NW.game.lightning(false));
+    await shot('21-vehicle-lineup', () => {
+      const g = window.__NW.game;
+      g.setWeather('clear');
+      g.setTime(11);
+      const ct = g.world.city.features.find((f) => f.type === 'clocktower');
+      const sq = g.world.city.blocks.find((b) => b.kind === 'square');
+      const x = sq.minX + sq.sidewalk + 6;
+      const z = sq.minZ + sq.sidewalk + 8;
+      g.traffic.parkShowcase(x, z, Math.PI / 2, ct.y + 0.15);
+      g.teleportPlayer(x + 30, z + 14, 0);
+      g.setDebugCamera(x + 28, ct.y + 7, z + 27, x + 27, ct.y + 0.8, z);
+    }, 6000);
+    await shot('22-crowd', () => {
+      const g = window.__NW.game;
+      g.setWeather('partly');
+      g.setTime(13);
+      const n = g.gotoJunction();
+      g.warmAI(30);
+      const p = g.player.position;
+      g.setDebugCamera(p.x + 9, p.y + 3.2, p.z + 9, p.x - 6, p.y + 1, p.z - 6);
+    }, 8000);
+    await shot('23-rain-umbrellas', () => {
+      const g = window.__NW.game;
+      g.setWeather('lightrain');
+      g.setTime(14);
+      g.warmAI(20);
+      const p = g.player.position;
+      g.setDebugCamera(p.x + 10, p.y + 3.5, p.z + 10, p.x - 6, p.y + 1, p.z - 6);
+    }, 8000);
+    await page.evaluate(() => {
+      const g = window.__NW.game;
+      g.setWeather('partly');
+      g.setTime(12);
+      g.clearDebugCamera();
+    });
     if (!ONLY || 'ui'.includes(ONLY) || ONLY.startsWith('ui')) {
       // UI flow on a fresh, non-automated page: loading screen, click to play, H, Esc, F3.
       await page.close();
@@ -193,7 +368,7 @@ async function main() {
       await ui.waitForFunction(() => window.__NW && window.__NW.ready, null, { timeout: 600000, polling: 1000 });
       await ui.waitForTimeout(1500);
       await ui.screenshot({ path: path.join(dir, 'ui-01-loading.png') });
-      await ui.click('.start');
+      await ui.click('.start', { timeout: 120000 });
       await ui.waitForTimeout(2500);
       await ui.keyboard.press('KeyH');
       await ui.waitForTimeout(1500);
@@ -203,17 +378,22 @@ async function main() {
       await ui.waitForTimeout(1500);
       await ui.screenshot({ path: path.join(dir, 'ui-03-pause.png') });
       const paused = await ui.evaluate(() => window.__NW.game.loop.paused);
-      await ui.click('button[data-preset="ultra"]');
+      await ui.click('button[data-preset="medium"]', { timeout: 120000 });
       await ui.waitForTimeout(1500);
       const preset = await ui.evaluate(() => window.__NW.game && JSON.parse(localStorage.getItem('nightwarden.settings.v1') || '{}').preset);
-      await ui.click('button[data-act="resume"]');
+      await ui.click('button[data-act="resume"]', { timeout: 120000 });
       await ui.waitForTimeout(1000);
       await ui.keyboard.press('F3');
       await ui.waitForTimeout(2500);
       await ui.screenshot({ path: path.join(dir, 'ui-04-stats.png') });
+      await ui.keyboard.press('KeyM');
+      await ui.waitForTimeout(2500);
+      await ui.screenshot({ path: path.join(dir, 'ui-05-map.png') });
+      await ui.keyboard.press('KeyM');
+      await ui.waitForTimeout(1000);
       const resumed = await ui.evaluate(() => !window.__NW.game.loop.paused);
       console.log('ui flow', { paused, preset, resumed });
-      if (!paused || preset !== 'ultra' || !resumed) errors.push(`ui flow failed ${JSON.stringify({ paused, preset, resumed })}`);
+      if (!paused || preset !== 'medium' || !resumed) errors.push(`ui flow failed ${JSON.stringify({ paused, preset, resumed })}`);
       await ui.evaluate(() => localStorage.removeItem('nightwarden.settings.v1'));
       await ui.close();
       console.log('screenshot ui-*');

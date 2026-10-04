@@ -54,6 +54,8 @@ export interface TrafficCar extends CarRenderState {
   holding: boolean;
   checkT: number;
   obsGap: number;
+  /** Never despawned (showcase / buses). */
+  persistent?: boolean;
 }
 
 const DENSITY: Record<District, number> = { midtown: 1, oldtown: 0.55, harbour: 0.65, industrial: 0.5, hills: 0.4, park: 0.3, island: 0.35, sea: 0 };
@@ -349,6 +351,8 @@ export class Traffic {
       const n = initial ? 40 : 1;
       for (let i = 0; i < n && this.cars.length < this.target + 4; i++) this.spawnAround(player.x, player.z, camera.position, initial);
     }
+    // Stopped wrecks / parked cars are off the lane graph: publish them as obstacles.
+    for (const c of this.cars) if (c.state !== 'drive') this.obstacles.push({ x: c.x, z: c.z, r: c.spec.width / 2 + 0.4, kind: 'car' });
     // Simulate (substeps keep IDM stable at low frame rates).
     const steps = Math.max(1, Math.ceil(dt / 0.034));
     const h = dt / steps;
@@ -366,11 +370,11 @@ export class Traffic {
       const d = Math.hypot(dx, dz);
       const inView = this.frustum.containsPoint(new THREE.Vector3(car.x, car.y + 1, car.z));
       car.unseenT = inView ? 0 : car.unseenT + dt;
-      if (!car.bus && (d > 330 || (d > 140 && car.unseenT > 4) || (car.state !== 'drive' && d > 220) || (car.waitT > 40 && !inView))) {
+      if (!car.bus && !car.persistent && (d > 330 || (d > 140 && car.unseenT > 4) || (car.state !== 'drive' && d > 220) || (car.waitT > 40 && !inView))) {
         this.remove(car);
         continue;
       }
-      car.visible = d < 420;
+      car.visible = Math.hypot(car.x - camera.position.x, car.z - camera.position.z) < 420;
       this.syncBody(car, d);
       if (car.state === 'wreck' && car.body) {
         const t = car.body.translation();
@@ -720,7 +724,7 @@ export class Traffic {
       car.body = physics.world.createRigidBody(desc);
       const hh = (s.roof - s.clearance) / 2;
       car.collider = physics.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(s.width / 2 - 0.05, hh, s.length / 2 - 0.1).setTranslation(0, 0, 0).setCollisionGroups(GROUPS_VEHICLE).setFriction(0.5).setDensity(s.mass / (s.width * s.length * hh * 2 * 4)),
+        RAPIER.ColliderDesc.cuboid(s.width / 2 - 0.05, hh, s.length / 2 - 0.1).setTranslation(0, 0, 0).setCollisionGroups(GROUPS_VEHICLE).setFriction(0.5).setDensity(s.mass / ((s.width - 0.1) * (s.length - 0.2) * hh * 2)),
         car.body,
       );
     }
@@ -761,6 +765,29 @@ export class Traffic {
     car.body.setAngularDamping(1.2);
     car.body.setLinvel({ x: Math.sin(car.yaw) * v, y: 0, z: Math.cos(car.yaw) * v }, true);
     car.speed = 0;
+  }
+
+  /** Debug/showcase: park one car of every kind in a row (no drivers). */
+  parkShowcase(x: number, z: number, yaw: number, y: number): void {
+    const kinds = ['compact', 'hatchback', 'sedan', 'estate', 'suv', 'pickup', 'van', 'taxi', 'bus'] as const;
+    let off = 0;
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    for (const k of kinds) {
+      const spec = SPECS[k];
+      const car = this.makeCar(spec, this.graph.lanes[0], 1, this.colorFor(spec));
+      this.leavePath(car, car.path);
+      car.state = 'parked';
+      car.driver = false;
+      off += spec.length / 2;
+      car.x = x + fx * off;
+      car.z = z + fz * off;
+      car.y = y;
+      car.yaw = yaw - Math.PI / 2;
+      car.pitch = 0;
+      car.persistent = true;
+      off += spec.length / 2 + 1.6;
+    }
   }
 
   /** Nearest traffic car to a point (for entering / hijacking). */

@@ -73,8 +73,8 @@ export class WeatherFX {
           vec3 dir = normalize(vel);
           vec3 toCam = normalize(cameraPosition - p);
           vec3 side = normalize(cross(dir, toCam));
-          float len = length(vel) * 0.045;
-          vec3 wp = p + side * position.x * 0.012 + dir * position.y * len;
+          float len = length(vel) * 0.03;
+          vec3 wp = p + side * position.x * 0.008 + dir * position.y * len;
           vV = position.y;
           float d = distance(p, cameraPosition);
           vA = smoothstep(0.6, 2.5, d) * (1.0 - smoothstep(uBox.x * 0.32, uBox.x * 0.5, d));
@@ -116,7 +116,7 @@ export class WeatherFX {
         uColor: { value: new THREE.Color(0.7, 0.75, 0.8) },
         uHeight: { value: heightTex },
         uTerr: { value: new THREE.Vector4(TERRAIN.minX, TERRAIN.minZ, TERRAIN.maxX - TERRAIN.minX, TERRAIN.maxZ - TERRAIN.minZ) },
-        uAlpha: { value: 0.5 },
+        uAlpha: { value: 0.3 },
       },
       vertexShader: /* glsl */ `
         attribute vec4 aSeed;
@@ -135,7 +135,7 @@ export class WeatherFX {
           float y = texture2D(uHeight, tuv).r + 0.17;
           vec3 c = vec3(xz.x, y, xz.y);
           vec4 mv = viewMatrix * vec4(c, 1.0);
-          float s = 0.06 + vLife * 0.16;
+          float s = 0.03 + vLife * 0.07;
           mv.xy += vec2(position.x * s, position.y * s * 0.9);
           vUv = vec2(position.x * 0.5 + 0.5, position.y);
           gl_Position = projectionMatrix * mv;
@@ -158,16 +158,21 @@ export class WeatherFX {
     this.group.add(this.rain, this.splash);
   }
 
+  /** Number of rain drops currently drawn. */
+  get rainCount(): number {
+    return this.rainGeo.instanceCount;
+  }
+
   update(dt: number, rain: number, cam: THREE.Camera, skyAmbient: number, night: number, bolt: { x: number; z: number; time: number; seed: number } | null, weatherTime: number, flash: number): void {
     const t = this.rainMat.uniforms.uTime.value + dt;
     this.rainMat.uniforms.uTime.value = t;
     this.splashMat.uniforms.uTime.value = t;
     (this.rainMat.uniforms.uWind.value as THREE.Vector3).copy(wind.vector);
-    const lum = 0.25 + skyAmbient * 1.2 + flash * 0.8;
-    const col = new THREE.Color(0.62, 0.68, 0.76).multiplyScalar(lum).add(new THREE.Color(0.09, 0.075, 0.06).multiplyScalar(night));
+    const lum = 0.05 + skyAmbient * 0.9 + flash * 0.8;
+    const col = new THREE.Color(0.62, 0.68, 0.76).multiplyScalar(lum).add(new THREE.Color(0.05, 0.045, 0.04).multiplyScalar(night));
     (this.rainMat.uniforms.uColor.value as THREE.Color).copy(col);
-    (this.splashMat.uniforms.uColor.value as THREE.Color).copy(col).multiplyScalar(1.2);
-    this.rainMat.uniforms.uAlpha.value = 0.22 + 0.25 * rain;
+    (this.splashMat.uniforms.uColor.value as THREE.Color).copy(col).multiplyScalar(0.9);
+    this.rainMat.uniforms.uAlpha.value = 0.1 + 0.16 * rain;
     this.rainGeo.instanceCount = Math.floor(this.maxDrops * Math.min(1, rain * 1.05));
     this.splashGeo.instanceCount = Math.floor(this.maxSplashes * THREE.MathUtils.clamp((rain - 0.05) * 1.2, 0, 1));
     this.rain.visible = this.rainGeo.instanceCount > 0;

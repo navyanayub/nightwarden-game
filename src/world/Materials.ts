@@ -73,8 +73,8 @@ const WET_GLSL = /* glsl */ `
     roughnessFactor = mix(roughnessFactor, 0.1 + roughnessFactor * 0.15, wetF * 0.85);
     #ifdef NW_PUDDLES
     if (upF > 0.92) {
-      float pn = nwFbm(vNwWorld.xz * 0.11 + 7.3) + 0.25 * nwNoise(vNwWorld.xz * 0.9);
-      nwPuddle = smoothstep(0.66, 0.74, pn + uWet * 0.18) * smoothstep(0.25, 0.9, uWet);
+      float pn = nwFbm(vNwWorld.xz * 0.19 + 7.3) + 0.22 * nwNoise(vNwWorld.xz * 1.1);
+      nwPuddle = smoothstep(0.74, 0.8, pn + uWet * 0.1) * smoothstep(0.3, 0.95, uWet);
       diffuseColor.rgb *= mix(1.0, 0.45, nwPuddle);
       roughnessFactor = mix(roughnessFactor, 0.03, nwPuddle);
     }
@@ -93,7 +93,7 @@ const WET_NORMAL_GLSL = /* glsl */ `
     float ph = fract(uNwTime * 1.3 + nwHash(ci));
     float rr = length(cf - (vec2(nwHash(ci + 3.1), nwHash(ci + 5.7)) - 0.5) * 0.4);
     float ring = sin((rr - ph * 0.5) * 60.0) * smoothstep(0.5 * ph + 0.06, 0.5 * ph, rr) * (1.0 - ph) * uRain;
-    vec2 g = cf / max(rr, 1e-3) * ring * 0.35;
+    vec2 g = cf / max(rr, 1e-3) * ring * 0.16;
     vec3 rip = (viewMatrix * vec4(g.x, 0.0, g.y, 0.0)).xyz;
     normal = normalize(mix(normal, normalize(nwFlat + rip), nwPuddle));
   }
@@ -250,7 +250,7 @@ vec3 nwInterior(vec2 uv, vec3 viewPos, vec3 nV, vec4 win, out float blindMask) {
   }
   // Light: lamps when on, else daylight falling off with depth.
   float day = uDaylight * 0.55 * exp(-t * 0.28);
-  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.1 : 0.9);
+  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.1 : 0.9) * mix(1.0, 0.4, uDaylight);
   vec3 lit = col * shade * (day + lamp);
   // Blinds / curtains drawn on the glass plane.
   float blind = ih(seed + 16.0) * (style > 1.5 ? 0.0 : 0.9);
@@ -380,7 +380,7 @@ function terrainMaterial(grass: PbrSet, sand: PbrSet, rock: PbrSet): THREE.MeshS
          vec4 rC = texture2D(tRock, vTerrUv / 4.0);
          vec3 w = vSplat / max(vSplat.r + vSplat.g + vSplat.b, 1e-3);
          float gv = 0.85 + 0.3 * texture2D(map, vMapUv * 0.031).g;
-         diffuseColor.rgb *= gC.rgb * vec3(0.62, 0.88, 0.42) * gv * w.r + sC.rgb * vec3(0.95, 0.82, 0.64) * w.g + rC.rgb * vec3(0.55, 0.5, 0.44) * w.b;`,
+         diffuseColor.rgb *= gC.rgb * vec3(0.55, 0.9, 0.36) * gv * w.r + sC.rgb * vec3(0.95, 0.82, 0.64) * w.g + rC.rgb * vec3(0.55, 0.5, 0.44) * w.b;`,
       )
       .replace('#include <color_fragment>', '');
   };
