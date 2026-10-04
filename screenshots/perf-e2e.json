@@ -9,14 +9,14 @@
     5058,
     5690
   ],
-  "cpuUpdateMs": 2.01,
-  "trafficMs": 0.45,
-  "crowdMs": 0.27,
-  "renderSubmitMs": 692.4,
-  "cars": 74,
-  "carsOnScreen": 42,
-  "peds": 149,
-  "pedsDrawn": 42,
-  "drawCalls": 580,
-  "triangles": 3283504
+  "cpuUpdateMs": 2.35,
+  "trafficMs": 0.25,
+  "crowdMs": 0.3,
+  "renderSubmitMs": 293.6,
+  "cars": 66,
+  "carsOnScreen": 31,
+  "peds": 148,
+  "pedsDrawn": 32,
+  "drawCalls": 556,
+  "triangles": 3061912
 }
