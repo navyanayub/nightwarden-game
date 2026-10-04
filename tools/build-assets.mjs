@@ -131,8 +131,72 @@ async function character() {
   }
 }
 
+// ---------------------------------------------------------------- crowd (pedestrians)
+/**
+ * Pedestrian bodies for GPU-instanced crowds: male + female base bodies with the *light*
+ * skin texture (tinted per instance in the shader), 512 px textures, plus two simplified LODs
+ * of the body mesh. Hairstyles (head-bone space) for variety.
+ */
+async function crowd() {
+  const base = path.join(RAW, 'quaternius', 'ubc', 'Universal Base Characters[Standard]');
+  const dir = path.join(base, 'Base Characters', 'Godot - UE');
+  const texDir = path.join(base, 'Base Characters', 'Textures');
+  for (const [want, have] of [['T_Hair_1_Normal_png.png', 'T_Hair_1_Normal.png'], ['T_Eye_Normal_png.png', 'T_Eye_Normal.png']]) {
+    if (!fs.existsSync(path.join(dir, want))) fs.copyFileSync(path.join(dir, have), path.join(dir, want));
+  }
+  const dst = path.join(OUT, 'models', 'characters');
+  mk(dst);
+  for (const [name, out, light] of [
+    ['Superhero_Male_FullBody', 'crowd_male', 'T_Superhero_Male_Ligh.png'],
+    ['Superhero_Female_FullBody', 'crowd_female', 'T_Superhero_Female_Light_BaseColor.png'],
+  ]) {
+    for (const lod of [0, 1, 2]) {
+      const doc = await io.read(path.join(dir, `${name}.gltf`));
+      const root = doc.getRoot();
+      // Swap the base colour to the light skin variant (tinted per pedestrian at runtime).
+      for (const mat of root.listMaterials()) {
+        const t = mat.getBaseColorTexture();
+        if (t && /Superhero/.test(t.getName() || t.getURI())) {
+          t.setImage(fs.readFileSync(path.join(texDir, light)));
+          t.setMimeType('image/png');
+        }
+      }
+      if (lod > 0) {
+        // Body only for distant LODs.
+        for (const node of root.listNodes()) {
+          const m = node.getMesh();
+          if (m && !/SuperHero|Superhero/i.test(node.getName())) {
+            node.setMesh(null);
+            m.dispose();
+          }
+        }
+      }
+      await doc.transform(
+        dedup(),
+        prune(),
+        ...(lod > 0 ? [weld(), simplify({ simplifier: MeshoptSimplifier, ratio: lod === 1 ? 0.33 : 0.11, error: lod === 1 ? 0.01 : 0.03, lockBorder: false })] : []),
+        textureCompress({ encoder: sharp, targetFormat: 'webp', resize: lod === 0 ? [512, 512] : [256, 256], quality: 82 }),
+      );
+      const file = `${out}${lod ? `_lod${lod}` : ''}.glb`;
+      await io.write(path.join(dst, file), doc);
+      console.log('crowd', file, triCount(doc));
+    }
+  }
+  const hairDir = path.join(base, 'Hairstyles', 'Origin at 0', 'glTF (Godot)');
+  for (const name of ['Hair_Buns', 'Hair_Buzzed', 'Hair_BuzzedFemale', 'Hair_Long', 'Hair_Beard']) {
+    const doc = await io.read(path.join(hairDir, `${name}.gltf`));
+    await doc.transform(dedup(), prune(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [512, 512], quality: 85 }));
+    await io.write(path.join(dst, `${name.toLowerCase()}.glb`), doc);
+    console.log('hair', name, triCount(doc));
+  }
+}
+
 // ---------------------------------------------------------------- animations
-const KEEP_ANIMS = ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Driving_Loop', 'Interact'];
+const KEEP_ANIMS = [
+  'Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Driving_Loop', 'Interact',
+  // Crowd behaviours.
+  'Idle_Talking_Loop', 'Walk_Formal_Loop', 'Sitting_Idle_Loop', 'Sitting_Talking_Loop', 'Crouch_Idle_Loop', 'Hit_Chest', 'Idle_Torch_Loop',
+];
 
 async function animations() {
   const file = path.join(RAW, 'quaternius', 'ual', 'Universal Animation Library[Standard]', 'Unreal-Godot', 'UAL1_Standard.glb');
@@ -167,7 +231,7 @@ async function animations() {
   console.log('animations', root.listAnimations().map((a) => a.getName()).join(', '), 'pelvis ratio', ratio.toFixed(3));
 }
 
-const steps = { textures, props, character, animations };
+const steps = { textures, props, character, crowd, animations };
 for (const [name, fn] of Object.entries(steps)) {
   if (only && only !== name) continue;
   await fn();

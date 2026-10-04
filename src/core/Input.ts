@@ -16,7 +16,12 @@ export type Action =
   | 'controls'
   | 'stats'
   | 'lights'
-  | 'camera';
+  | 'camera'
+  | 'timeskip'
+  | 'weather'
+  | 'map'
+  | 'horn'
+  | 'debugShot';
 
 const KEY_BINDINGS: Record<Action, string[]> = {
   forward: ['KeyW', 'ArrowUp'],
@@ -32,6 +37,11 @@ const KEY_BINDINGS: Record<Action, string[]> = {
   stats: ['F3'],
   lights: ['KeyL'],
   camera: ['KeyC'],
+  timeskip: ['KeyT'],
+  weather: ['KeyY'],
+  map: ['KeyM'],
+  horn: ['KeyQ'],
+  debugShot: ['F6'],
 };
 
 // Standard gamepad mapping button indices.
@@ -44,6 +54,9 @@ const PAD_BINDINGS: Partial<Record<Action, number[]>> = {
   controls: [8],
   lights: [12],
   camera: [11],
+  map: [15],
+  horn: [13],
+  timeskip: [14],
 };
 
 export class Input {
@@ -72,7 +85,7 @@ export class Input {
 
   constructor(private readonly element: HTMLElement) {
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'F3' || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'Tab') e.preventDefault();
+      if (e.code === 'F3' || e.code === 'F6' || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'Tab') e.preventDefault();
       if (!this.down.has(e.code)) this.pressedKeys.add(e.code);
       this.down.add(e.code);
       for (const [action, keys] of Object.entries(KEY_BINDINGS) as [Action, string[]][]) {

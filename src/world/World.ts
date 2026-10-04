@@ -22,12 +22,16 @@ import { generateCity, type BuildingSpec, type CityData, type Feature, type Prop
 import { buildDetailSteps, buildFar, buildingColliders } from './BuildingGen';
 import { buildBlockGround, buildNode, buildPath, buildRoadSegment } from './RoadGen';
 import { buildFeature, type FeatureResult } from './Landmarks';
-import { PropSystem, gltfModel, lampModel, oldLampModel, parkLampModel, signalModel, bollardModel, type PropModel } from './Props';
+import { PropSystem, gltfModel, lampModel, oldLampModel, parkLampModel, signalModel, bollardModel, busShelterModel, type PropModel } from './Props';
 import { buildTrees, impostorModel } from './Trees';
 import { createHeightTexture, createTerrainCollider, heightAt, heightfield, terrainSplat } from './Terrain';
 import { Water } from './Water';
 import { CHUNK_SIZE, LAKE, TERRAIN } from './WorldConfig';
 import { signs } from './Signage';
+import { NightLights } from './NightLights';
+import { Flags } from './Flags';
+import { clock } from '../systems/Clock';
+import { wind } from '../systems/Weather';
 
 const BASE_KEYS = new Set(['asphalt', 'cobble', 'pavement', 'plaza', 'grass', 'gravel', 'kerb']);
 const MAJOR_FEATURES = new Set(['clocktower', 'lighthouse', 'crane', 'chimney', 'tank', 'pavilion']);
@@ -62,14 +66,14 @@ export class World {
   private water!: Water;
   private lake!: Water;
   private animated: THREE.Object3D[] = [];
-  private signalMats: THREE.MeshStandardMaterial[] = [];
   private lampMat!: THREE.MeshStandardMaterial;
+  nightLights!: NightLights;
+  flags!: Flags;
+  heightTex!: THREE.DataTexture;
   private buildQueue: Chunk[] = [];
   /** Incremental detail build in progress (time-sliced across frames). */
   private job: { chunk: Chunk; it: Iterator<void> } | null = null;
   private frame = 0;
-  /** In-game clock in hours (Stage 2 adds a day/night cycle). */
-  clockHours = 14.5;
   stats = { chunks: 0, detail: 0, buildings: 0 };
 
   constructor(private readonly scene: THREE.Scene, private readonly renderer: THREE.WebGLRenderer) {
@@ -98,6 +102,7 @@ export class World {
     createTerrainCollider();
     // Ocean & lake.
     const heightTex = createHeightTexture();
+    this.heightTex = heightTex;
     this.water = new Water(heightTex, 0);
     this.root.add(this.water.mesh);
     this.lake = new Water(heightTex, LAKE.level, LAKE.rx * 3, 60);
@@ -122,6 +127,10 @@ export class World {
     await this.buildProps();
     await onProgress('Building landmarks');
     this.buildFeatures();
+    this.nightLights = new NightLights(this.city, settings.q.streetLights);
+    this.root.add(this.nightLights.group);
+    this.flags = new Flags(this.city);
+    this.root.add(this.flags.group);
     this.applyPreset(settings.q);
     this.stats.chunks = this.chunks.size;
   }
@@ -404,8 +413,8 @@ export class World {
     reg('lamp_park', parkLampModel());
     reg('signal', signalModel());
     reg('bollard', bollardModel());
+    reg('bus_shelter', busShelterModel());
     this.lampMat = materials.m.lamp_glow as THREE.MeshStandardMaterial;
-    this.signalMats = ['light_red', 'light_amber', 'light_green'].map((k) => materials.m[k] as THREE.MeshStandardMaterial);
     // Trees + impostors.
     const kit = buildTrees(this.renderer, this.scene.environment);
     kit.models.forEach((m, i) => {
@@ -445,6 +454,7 @@ export class World {
     this.props.treeRange = q.treeDistance;
     this.props.farRange = q.drawDistance;
     this.props.update(new THREE.Vector3(1e9, 0, 0), true);
+    this.nightLights?.setLightCount(q.streetLights);
     for (const c of this.chunks.values()) if (c.detailState === 'built') c.lastNear = 0;
   }
 
@@ -527,9 +537,15 @@ export class World {
 
   private animate(): void {
     // Clock hands from the in-game clock.
-    const h = this.clockHours % 12;
-    const mins = (this.clockHours * 60) % 60;
+    const h = clock.hours % 12;
+    const mins = (clock.hours * 60) % 60;
     for (const a of this.animated) {
+      if (a.name === 'windsock') {
+        // Point downwind; droop when calm.
+        const yaw = Math.atan2(-wind.dirZ, wind.dirX);
+        a.rotation.set(0, yaw, -(1 - Math.min(1, wind.speed / 9)) * 1.1, 'YXZ');
+        continue;
+      }
       if (a.name !== 'clockHands') continue;
       for (const pivot of a.children) {
         const hour = pivot.getObjectByName('hour');
@@ -538,12 +554,25 @@ export class World {
         if (minute) minute.rotation.z = -(mins / 60) * Math.PI * 2;
       }
     }
-    // Traffic lights: 0 = red, 1 = amber, 2 = green; the props share one phase for clarity.
-    const t = shared.time.value % 24;
-    const phase = t < 10 ? 2 : t < 13 ? 1 : 0;
-    this.signalMats.forEach((m, i) => (m.emissiveIntensity = i === phase ? 6 : 0.12));
-    // Lamps glow at dusk/night only.
-    if (this.lampMat) this.lampMat.emissiveIntensity = 0.15 + 3.0 * (1 - shared.daylight.value);
+    const night = clock.night;
+    const m = materials.m;
+    // Lamps glow at dusk/night only; signs and neon brighten after dark.
+    if (this.lampMat) this.lampMat.emissiveIntensity = 0.12 + 5.0 * THREE.MathUtils.smoothstep(night, 0.1, 0.6);
+    (m.signs as THREE.MeshStandardMaterial).emissiveIntensity = 0.25 + 1.6 * night;
+    for (const k of ['neon_pink', 'neon_cyan', 'neon_amber', 'neon_green']) {
+      const nm = m[k] as THREE.MeshStandardMaterial;
+      const flicker = k === 'neon_green' && Math.sin(shared.time.value * 37) > 0.93 ? 0.3 : 1;
+      nm.emissiveIntensity = (0.5 + 7.5 * night) * flicker;
+    }
+    // Aviation obstruction lights (cranes, towers, chimneys) blink red.
+    const blink = Math.sin(shared.time.value * Math.PI * 1.0) > 0.2 ? 1 : 0;
+    (m.light_red as THREE.MeshStandardMaterial).emissiveIntensity = 0.3 + (2 + 10 * night) * blink;
+  }
+
+  /** Night lights, flags (per-frame, needs the player focus for real-light assignment). */
+  updateEnvironment(dt: number, focus: THREE.Vector3, wetness: number): void {
+    this.nightLights.update(dt, focus, clock.night, wetness, shared.time.value);
+    this.flags.update();
   }
 }
 

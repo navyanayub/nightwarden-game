@@ -259,6 +259,7 @@ function oldTown(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, 
         const o = 0.125;
         mb.quad('signs', P(f, su0, fv0, o), P(f, su1, fv0, o), P(f, su1, fv1, o), P(f, su0, fv1, o), { uvs: [[uv[0], uv[1]], [uv[2], uv[1]], [uv[2], uv[3]], [uv[0], uv[3]]] });
         if (rng.chance(0.55)) awning(mb, f, sx0, sx1, gh - 1.3, rng);
+        if (rng.chance(0.45)) neonBlade(mb, f, rng.chance(0.5) ? sx0 + 0.3 : sx1 - 0.3, gh + 0.2, rng);
       } else {
         // Door + windows at street level.
         const doorBay = isFront ? rng.int(0, n - 1) : -1;
@@ -330,6 +331,37 @@ function oldTown(mb: MeshBuilder, s: BuildingSpec, rng: Rng, tint: THREE.Color, 
     mb.extrude(trim, footprintLoop(s.w, s.d, 0.0), true, [[0.04, pTop], [0.04, pTop + 0.12], [-0.34, pTop + 0.12], [-0.34, pTop]]);
     mb.box('roof_flat', -s.w / 2 + 0.3, H + 0.6, -s.d / 2 + 0.3, s.w / 2 - 0.3, H + 0.7, s.d / 2 - 0.3, { skip: ['px', 'nx', 'pz', 'nz', 'ny'] });
     roofClutter(mb, s, rng, H + 0.7, res, s.floors >= 4 && rng.chance(0.4));
+  }
+}
+
+const NEON = ['neon_pink', 'neon_cyan', 'neon_amber', 'neon_green'];
+
+/** Projecting blade sign outlined in neon tubes, with a few abstract "lettering" strokes. */
+function neonBlade(mb: MeshBuilder, f: Frame, u: number, v0: number, rng: Rng): void {
+  const h = rng.range(1.4, 2.2);
+  const o0 = 0.15;
+  const o1 = 1.0;
+  const v1 = v0 + h;
+  const neon = rng.pick(NEON);
+  boxF(mb, 'paint_dark', f, u - 0.035, u + 0.035, v0, v1, o0, o1, white, false);
+  boxF(mb, 'steel_dark', f, u - 0.02, u + 0.02, v1 - 0.05, v1 + 0.05, 0, o0 + 0.1);
+  boxF(mb, 'steel_dark', f, u - 0.02, u + 0.02, v0 + 0.1, v0 + 0.18, 0, o0 + 0.1);
+  const t = 0.035;
+  const w = 0.06;
+  // Outline.
+  boxF(mb, neon, f, u - w, u + w, v1 - 0.08 - t, v1 - 0.08, o0 + 0.06, o1 - 0.06);
+  boxF(mb, neon, f, u - w, u + w, v0 + 0.08, v0 + 0.08 + t, o0 + 0.06, o1 - 0.06);
+  boxF(mb, neon, f, u - w, u + w, v0 + 0.08, v1 - 0.08, o1 - 0.06 - t, o1 - 0.06);
+  boxF(mb, neon, f, u - w, u + w, v0 + 0.08, v1 - 0.08, o0 + 0.06, o0 + 0.06 + t);
+  // Lettering strokes in a second colour.
+  const ink = rng.pick(NEON.filter((n) => n !== neon));
+  const rows = Math.floor((h - 0.4) / 0.32);
+  for (let i = 0; i < rows; i++) {
+    const vv = v1 - 0.32 - i * 0.32;
+    const a = rng.range(0.25, 0.4);
+    const b = rng.range(0.6, 0.78);
+    boxF(mb, ink, f, u - w * 0.9, u + w * 0.9, vv, vv + t, o0 + (o1 - o0) * a, o0 + (o1 - o0) * b);
+    if (rng.chance(0.5)) boxF(mb, ink, f, u - w * 0.9, u + w * 0.9, vv - 0.14, vv, o0 + (o1 - o0) * a, o0 + (o1 - o0) * a + t);
   }
 }
 

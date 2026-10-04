@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { assets } from '../core/AssetLoader';
 import { MeshBuilder } from './MeshBuilder';
 import { materials } from './Materials';
+import { signs } from './Signage';
 import type { PropSpec } from './CityLayout';
 
 interface Part {
@@ -230,7 +231,7 @@ export function parkLampModel(): PropModel {
   return builtModel(mb, { radius: 0.12, height: 3.5, range: 1 });
 }
 
-/** Traffic signal pole with a 3-lamp head facing local +z. Lamp materials cycle in World. */
+/** Traffic signal pole with a 3-lamp head facing local +z (lenses lit by ai/SignalLights). */
 export function signalModel(): PropModel {
   const mb = new MeshBuilder();
   mb.lathe('paint_dark', 0, 0, [[0.14, 0], [0.14, 0.3], [0.09, 0.4], [0.09, 3.8]], 10, { capTop: true });
@@ -248,8 +249,34 @@ export function signalModel(): PropModel {
     g.translate(0, y, 0.365);
     return { geometry: g, material: materials.m[key], matrix: new THREE.Matrix4(), castShadow: false };
   };
-  base.parts.push(lens('light_red', 3.2), lens('light_amber', 2.84), lens('light_green', 2.48));
+  // Dark lenses; the lit colours are drawn by the traffic SignalLights layer per junction.
+  base.parts.push(lens('lens_off', 3.2), lens('lens_off', 2.84), lens('lens_off', 2.48));
   return base;
+}
+
+/** Bus shelter (Vellmar Lines): steel frame, glass back & roof, lit advert panel, bench, stop flag. Faces local +z. */
+export function busShelterModel(): PropModel {
+  const mb = new MeshBuilder();
+  const W = 4.2;
+  const D = 1.5;
+  const H = 2.5;
+  for (const x of [-W / 2, W / 2]) for (const z of [-D / 2, D / 2 - 0.1]) mb.box('steel_dark', x - 0.05, 0, z - 0.05, x + 0.05, H, z + 0.05);
+  mb.box('steel_dark', -W / 2 - 0.1, H, -D / 2 - 0.15, W / 2 + 0.1, H + 0.08, D / 2 + 0.25);
+  mb.box('glass_plain', -W / 2 + 0.05, H + 0.08, -D / 2 - 0.1, W / 2 - 0.05, H + 0.1, D / 2 + 0.2);
+  mb.box('glass_plain', -W / 2 + 0.05, 0.12, -D / 2 - 0.02, W / 2 - 1.3, H - 0.1, -D / 2 + 0.02);
+  // Lit advert panel at the end.
+  mb.box('steel_dark', W / 2 - 1.3, 0.1, -D / 2 - 0.06, W / 2 - 0.05, H - 0.1, -D / 2 + 0.06);
+  const ad = signs().adUV(3);
+  mb.quad('signs', [W / 2 - 1.22, 0.3, -D / 2 + 0.07], [W / 2 - 0.13, 0.3, -D / 2 + 0.07], [W / 2 - 0.13, H - 0.3, -D / 2 + 0.07], [W / 2 - 1.22, H - 0.3, -D / 2 + 0.07], { uvs: [[ad[0], ad[1]], [ad[2], ad[1]], [ad[2], ad[3]], [ad[0], ad[3]]] });
+  // Bench.
+  mb.box('wood', -W / 2 + 0.3, 0.45, -D / 2 + 0.12, W / 2 - 1.5, 0.5, -D / 2 + 0.52);
+  for (const x of [-W / 2 + 0.5, W / 2 - 1.7]) mb.box('steel_dark', x - 0.03, 0, -D / 2 + 0.2, x + 0.03, 0.45, -D / 2 + 0.45);
+  // Stop flag on a pole at the kerb.
+  mb.cylinder('steel_light', -W / 2 - 0.8, 0, D / 2 + 0.6, 0.04, 0.04, 2.9, 8, { capTop: true });
+  const v = signs().extraUV('vellmar');
+  mb.quad('signs', [-W / 2 - 1.3, 2.3, D / 2 + 0.65], [-W / 2 - 0.3, 2.3, D / 2 + 0.65], [-W / 2 - 0.3, 2.55, D / 2 + 0.65], [-W / 2 - 1.3, 2.55, D / 2 + 0.65], { uvs: [[v[0], v[1]], [v[2], v[1]], [v[2], v[3]], [v[0], v[3]]] });
+  mb.quad('signs', [-W / 2 - 0.3, 2.3, D / 2 + 0.55], [-W / 2 - 1.3, 2.3, D / 2 + 0.55], [-W / 2 - 1.3, 2.55, D / 2 + 0.55], [-W / 2 - 0.3, 2.55, D / 2 + 0.55], { uvs: [[v[0], v[1]], [v[2], v[1]], [v[2], v[3]], [v[0], v[3]]] });
+  return builtModel(mb, { radius: 0, height: H, range: 1.3 });
 }
 
 export function bollardModel(): PropModel {

@@ -62,8 +62,9 @@ function leafMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ map: leafTexture(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.92, metalness: 0, envMapIntensity: 0.55, vertexColors: false });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = shared.time;
+    shader.uniforms.uWind = shared.wind;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform vec4 uWind;')
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -72,8 +73,15 @@ function leafMaterial(): THREE.MeshStandardMaterial {
           #ifdef USE_INSTANCING
           ip = instanceMatrix[3].xyz;
           #endif
-          float sway = sin(uTime * 1.3 + ip.x * 0.15 + ip.z * 0.1 + position.y * 0.4) * 0.04 + sin(uTime * 3.1 + position.x * 2.0) * 0.015;
-          transformed.xz += vec2(sway, sway * 0.6) * max(position.y - 2.0, 0.0) * 0.35;
+          // Wind: gusty sway plus a steady lean downwind (direction converted to tree space).
+          vec3 wl = vec3(uWind.x, 0.0, uWind.y);
+          #ifdef USE_INSTANCING
+          wl = normalize(transpose(mat3(instanceMatrix)) * wl);
+          #endif
+          float str = 0.3 + uWind.z * 1.6 + uWind.w * 1.2;
+          float sway = sin(uTime * (1.3 + uWind.z * 1.4) + ip.x * 0.15 + ip.z * 0.1 + position.y * 0.4) * 0.04 * str + sin(uTime * (3.1 + uWind.z * 3.0) + position.x * 2.0) * 0.015 * str;
+          vec2 lean = wl.xz * (uWind.z * 0.1 + uWind.w * 0.12);
+          transformed.xz += (vec2(sway, sway * 0.6) * mix(vec2(1.0), abs(wl.xz) + 0.3, uWind.z) + lean) * max(position.y - 2.0, 0.0) * 0.35;
         }`,
       );
     // Soft translucency: leaves facing away from the sun still receive some light.

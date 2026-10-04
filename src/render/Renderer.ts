@@ -20,6 +20,7 @@ import { N8AOPostPass } from 'n8ao';
 import { settings, type QualitySettings } from '../core/Settings';
 import { FogEffect } from './FogEffect';
 import { Atmosphere } from './Atmosphere';
+import { ScreenDropsEffect } from './ScreenDropsEffect';
 
 export class Renderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -34,6 +35,8 @@ export class Renderer {
   private smaa: SMAAEffect;
   private mainPass!: EffectPass;
   private smaaPass!: EffectPass;
+  private dropsPass!: EffectPass;
+  readonly drops = new ScreenDropsEffect();
   private toneMapping: ToneMappingEffect;
   private vignette: VignetteEffect;
   private grade: HueSaturationEffect;
@@ -89,11 +92,16 @@ export class Renderer {
   private buildPasses(): void {
     if (this.mainPass) this.composer.removePass(this.mainPass);
     if (this.smaaPass) this.composer.removePass(this.smaaPass);
+    if (this.dropsPass) this.composer.removePass(this.dropsPass);
     if (this.dbg.has('nofog')) this.fog.set('uDensity', 0);
     const effects = [this.fog, ...(settings.q.bloom && !this.dbg.has('nobloom') ? [this.bloom] : []), this.toneMapping, this.grade, this.contrast, this.vignette];
     this.mainPass = new EffectPass(this.camera, ...effects);
     this.smaaPass = new EffectPass(this.camera, this.smaa);
+    const dropsOn = this.dropsPass?.enabled ?? false;
+    this.dropsPass = new EffectPass(this.camera, this.drops);
+    this.dropsPass.enabled = dropsOn;
     this.composer.addPass(this.mainPass);
+    this.composer.addPass(this.dropsPass);
     this.composer.addPass(this.smaaPass);
   }
 
@@ -130,6 +138,13 @@ export class Renderer {
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
     this.composer.setSize(this.width, this.height, false);
+  }
+
+  /** Raindrops on the lens (driving camera); 0 disables the pass. */
+  setScreenDrops(amount: number): void {
+    this.drops.amount = amount;
+    this.drops.aspect = this.width / this.height;
+    this.dropsPass.enabled = amount > 0.01;
   }
 
   render(dt: number): void {

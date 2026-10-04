@@ -7,7 +7,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const expr = process.argv[2];
-const proc = spawn('npx', ['vite', 'preview', '--port', '4174', '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+const proc = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), 'preview', '--port', '4174', '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 await new Promise((r) => { const f = (d) => String(d).includes('4174') && r(); proc.stdout.on('data', f); proc.stderr.on('data', f); setTimeout(r, 8000); });
 const browser = await chromium.launch({ executablePath: fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 640, height: 360 } });

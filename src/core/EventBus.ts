@@ -16,6 +16,12 @@ export interface GameEvents {
   'ui:toggleControls': void;
   'ui:toggleStats': void;
   'world:chunkBuilt': { key: string };
+  'weather:change': { state: string };
+  'weather:lightning': { x: number; z: number; dist: number };
+  /** A loud bang (gunshot, crash) that pedestrians react to. */
+  'world:alarm': { x: number; z: number; radius: number; kind: 'gunshot' | 'crash' | 'pavement' };
+  'traffic:horn': { x: number; z: number };
+  'player:hijack': { x: number; z: number };
 }
 
 type Handler<T> = (payload: T) => void;

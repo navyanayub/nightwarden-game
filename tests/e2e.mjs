@@ -25,7 +25,7 @@ const SUFFIX = args.find((a) => a.startsWith('--suffix='))?.slice(9) ?? '';
 const URL_BASE = `http://localhost:${PORT}/nightwarden-game/`;
 
 function startServer() {
-  const proc = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('preview server timeout')), 30000);
     const onData = (d) => {
@@ -224,7 +224,7 @@ async function main() {
   for (const w of [...new Set(warnings)].slice(0, 15)) console.log('  warn', w);
   await browser.close();
   server.kill();
-  if (state.error || errors.length) process.exit(1);
+  process.exit(state.error || errors.length ? 1 : 0);
 }
 
 main().catch((e) => {
