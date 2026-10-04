@@ -1,5 +1,6 @@
 /**
  * Top-level game: owns the loop, renderer, physics, world, player, vehicles, camera and UI.
+ * Stage 4 adds the crime director, police, AI vehicle fleet, wanted level, stats and their HUD.
  */
 import * as THREE from 'three';
 import { FIXED_DT, Loop } from './Loop';
@@ -32,6 +33,16 @@ import { Combat, GADGETS } from '../combat/Combat';
 import { Gore } from '../combat/Gore';
 import { Updrafts } from '../world/Updrafts';
 import { probeLedge, probeObstacle } from '../player/Traversal';
+import { Fleet } from '../vehicles/Fleet';
+import { Police, type PlayerInfo, type WantedView } from '../police/Police';
+import { Wanted } from '../crime/Wanted';
+import { Stats } from '../crime/Stats';
+import { Crimes, type CrimeType } from '../crime/Crimes';
+import { CrimeSites } from '../crime/Sites';
+import { GANGS, GANG_IDS, Territory, CONTROL_DISTRICTS, type GangId } from '../crime/Gangs';
+import { CrimeHUD } from '../ui/CrimeHUD';
+import type { MapMarker } from '../ui/Minimap';
+import { Driver, type DrivenCar } from '../ai/Driver';
 
 type Mode = 'foot' | 'drive';
 
@@ -56,6 +67,16 @@ export class Game {
   combat!: Combat;
   gore!: Gore;
   updrafts!: Updrafts;
+  // Stage 4: crime and police.
+  territory!: Territory;
+  fleet!: Fleet;
+  police!: Police;
+  sites!: CrimeSites;
+  stats!: Stats;
+  wanted!: Wanted;
+  crimes!: Crimes;
+  crimeHud!: CrimeHUD;
+  private lastRam = -9;
   /** Pedestrians knocked over (ragdoll actors handed over from the crowd). */
   readonly pedActors: { actor: Actor; t: number; ko: boolean; flee: THREE.Vector3; up: boolean }[] = [];
   private playerView!: PlayerView;
@@ -184,8 +205,11 @@ export class Game {
     this.renderer.scene.add(this.player.cape.mesh, this.player.rope.mesh);
     this.player.setContext({ inCombat: false, lift: (x, y, z) => this.updrafts.lift(x, y, z) });
     const pl = this.player;
+    const game = this;
     this.playerView = {
-      pos: pl.position,
+      get pos() {
+        return game.mode === 'drive' && game.current ? game.current.position : pl.position;
+      },
       get hero() {
         return pl.hero;
       },
@@ -194,6 +218,9 @@ export class Game {
       },
       get driving() {
         return pl.driving;
+      },
+      get canArrest() {
+        return game.mode === 'foot' ? pl.state === 'move' && pl.groundSpeed < 2.6 : !!game.current && Math.abs(game.current.sim.speed) < 1.2;
       },
       hurt: (a, f, h) => pl.hurt(a, f, h),
     };
@@ -207,6 +234,29 @@ export class Game {
     events.on('player:ko', () => this.ui.toast('Knocked down — catch your breath'));
     if (new URLSearchParams(location.search).has('hero')) this.player.setHero(true);
     heroDone();
+    // Stage 4: gangs' territory, police, crime.
+    const crimeDone = job('Crime & police', 2);
+    this.territory = new Territory();
+    this.enemies.territory = this.territory;
+    this.fleet = new Fleet(graph, this.traffic);
+    this.police = new Police(this.renderer.scene, this.fleet, this.enemies);
+    this.sites = new CrimeSites(this.world.city, graph, this.enemies.hangouts.map((h) => ({ x: h.x, z: h.z })));
+    this.renderer.scene.add(this.sites.group);
+    this.stats = new Stats();
+    this.wanted = new Wanted(this.stats);
+    this.crimes = new Crimes(this.sites, this.enemies, this.police, this.fleet, this.territory, this.stats, this.actorKit);
+    this.renderer.scene.add(this.crimes.group);
+    this.crimeHud = new CrimeHUD(this.ui.root);
+    if (new URLSearchParams(location.search).has('nocrime')) this.crimes.enabled = false;
+    events.on('player:offense', (o) => {
+      const p = new THREE.Vector3(o.x, this.player.position.y, o.z);
+      const witnessed = o.kind === 'attackOfficer' || o.kind === 'koOfficer' || this.police.witness(p, this.traffic.cars.filter((c) => c.spec.kind === 'police'));
+      this.wanted.offense(o.kind, o.x, o.z, witnessed);
+    });
+    events.on('police:spikes', (e) => {
+      if (e.player) this.ui.toast('Spike strip! Tyres shredded');
+    });
+    crimeDone();
     // Debug camera from the URL (?cam=x,y,z,tx,ty,tz) for screenshots.
     const cam = new URLSearchParams(location.search).get('cam');
     if (cam) {
@@ -259,15 +309,73 @@ export class Game {
       const f = this.rig.forward(new THREE.Vector3());
       this.combat.fixedUpdate(dt, this.input, f, new THREE.Vector3(-f.z, 0, f.x));
     }
+    const pinfo = this.playerInfo();
+    const wv = this.wantedView();
+    const L = this.wanted.level;
+    const suspect = this.stats.trust < 30 && this.player.hero && this.mode === 'foot' && this.crimes.atScene(pinfo.pos);
+    this.enemies.policeVsPlayer = L >= 2 ? 2 : L === 1 || suspect ? 1 : 0;
     this.enemies.fixedUpdate(dt, this.playerView);
+    this.police.fixedUpdate(dt, pinfo, wv);
+    this.crimes.fixedUpdate(dt, { pos: pinfo.pos, hero: this.player.hero, driving: this.mode === 'drive' });
     this.vehicleHits();
+    if (this.pilot && this.current) {
+      this.pilot.update(dt);
+      const i = this.pilot.car.input;
+      this.autoDrive = { throttle: i.throttle, brake: i.brake, steer: i.steer, handbrake: i.handbrake };
+    }
+    this.fleet.fixedUpdate(dt);
     for (const v of this.vehicles) {
       const drive = v === this.current ? this.autoDrive ?? { throttle: this.input.throttle, brake: this.input.brake, steer: this.input.moveX, handbrake: this.input.held('handbrake') } : null;
       v.fixedUpdate(dt, drive);
     }
     physics.step(dt);
     for (const v of this.vehicles) v.postStep();
+    this.fleet.postStep();
     this.traffic?.detectCrashes();
+    this.ramChecks();
+    this.wanted.update(dt, pinfo.pos, this.police.seenBy !== null, this.isHidden());
+  }
+
+  /** The player (or the player's car) for the police AI. */
+  private playerInfo(): PlayerInfo {
+    const c = this.current;
+    if (this.mode === 'drive' && c) {
+      const lv = c.sim.chassis.linvel();
+      return { pos: c.position.clone(), vel: new THREE.Vector3(lv.x, 0, lv.z), yaw: c.sim.yaw, driving: true, car: c.sim };
+    }
+    return { pos: this.player.position.clone(), vel: this.player.velocity.clone().setY(0), yaw: this.player.yaw, driving: false, car: null };
+  }
+
+  private wantedView(): WantedView {
+    return { level: this.wanted.level, seen: this.wanted.known, center: this.wanted.center, radius: this.wanted.radius };
+  }
+
+  /** Rooftops and narrow lanes hide the player from the search. */
+  private isHidden(): boolean {
+    if (this.mode !== 'foot') return false;
+    const p = this.player.position;
+    if (p.y - heightAt(p.x, p.z) > 7) return true;
+    for (const l of this.traffic.graph.lanesNear(p.x, p.z, 20)) {
+      if (l.road.kind !== 'lane') continue;
+      const along = (p.x - l.xs[0]) * l.dirX + (p.z - l.zs[0]) * l.dirZ;
+      if (along < -4 || along > l.length + 4) continue;
+      const lat = Math.abs((p.x - l.xs[0]) * -l.dirZ + (p.z - l.zs[0]) * l.dirX);
+      if (lat < 7) return true;
+    }
+    return false;
+  }
+
+  /** Ramming a police car is an offense; the player's car taking hits is its own business. */
+  private ramChecks(): void {
+    const v = this.current;
+    if (!v || Math.abs(v.sim.speed) < 7) return;
+    for (const c of this.fleet.cars) {
+      if (!c.police || c.lastHit.t < c.time - 0.05) continue;
+      if (c.position.distanceTo(v.position) > 7) continue;
+      if (this.loop.time - this.lastRam < 2) continue;
+      this.lastRam = this.loop.time;
+      events.emit('player:offense', { kind: 'property', x: c.position.x, z: c.position.z });
+    }
   }
 
   /** Smoothed CPU timings (ms) for the F3 overlay and the perf log. */
@@ -280,7 +388,10 @@ export class Game {
     this.perf.update = this.perf.update * 0.9 + (performance.now() - t0) * 0.1;
   }
 
+  private alpha = 1;
+
   private updateInner(dt: number, alpha: number): void {
+    this.alpha = alpha;
     const input = this.input;
     input.update();
     // Global toggles.
@@ -292,7 +403,14 @@ export class Game {
       if (this.minimap.open) this.input.exitPointerLock();
       else this.input.requestPointerLock();
     }
-    if (input.pressed('pause') && this.started && this.minimap.open) {
+    if (input.pressed('record') && this.started && !this.ui.paused && !this.minimap.open) {
+      this.crimeHud.toggleRecord();
+      this.loop.paused = this.crimeHud.open;
+    }
+    if (input.pressed('pause') && this.started && this.crimeHud.open) {
+      this.crimeHud.toggleRecord(false);
+      this.loop.paused = false;
+    } else if (input.pressed('pause') && this.started && this.minimap.open) {
       this.minimap.toggle(false);
       this.loop.paused = false;
       this.input.requestPointerLock();
@@ -334,6 +452,8 @@ export class Game {
     this.updateVigilante(dt);
     this.perf.enemies = this.perf.enemies * 0.9 + (performance.now() - te) * 0.1;
     this.rescueFromWater();
+    const rs = this.wanted.takeRespawn();
+    if (rs) this.respawnAt(rs.where);
     if (this.current) {
       // Seat the driver.
       const seat = this.current.parts.seat;
@@ -414,7 +534,8 @@ export class Game {
     const camYaw = Math.atan2(cf.x, cf.z);
     const heading = this.mode === 'drive' && this.current ? this.current.sim.yaw : this.player.yaw;
     const zoom = this.mode === 'drive' && this.current ? Math.max(0.42, 0.8 - Math.abs(this.current.sim.speed) * 0.012) : 1;
-    this.minimap.update(where.x, where.z, camYaw, heading, zoom, this.started && !this.ui.paused);
+    this.updateCrimeHud(dt, where);
+    this.minimap.update(where.x, where.z, camYaw, heading, zoom, this.started && !this.ui.paused && !this.crimeHud.open);
     this.minimap.drawFull(where.x, where.z, heading);
     // World streaming & atmosphere.
     this.world.update(dt, cp);
@@ -441,6 +562,7 @@ export class Game {
             `Chunks building ${this.world.pendingDetail}\n` +
             `CPU update ${this.perf.update.toFixed(1)} ms (traffic ${this.perf.traffic.toFixed(1)}, crowd ${this.perf.crowd.toFixed(1)}, hero+cape ${this.perf.hero.toFixed(1)}, fights ${this.perf.enemies.toFixed(1)})  render ${this.perf.render.toFixed(1)} ms\n` +
             `Cars ${this.traffic.cars.length}  Pedestrians ${this.crowd.peds.length} (drawn ${this.crowd.render.stats.drawn})\n` +
+            `Crimes ${this.crimes.active.length}  Police units ${this.police.units.length}  AI cars ${this.fleet.cars.length}  Fighters ${this.enemies.thugs.length}  Wanted ${this.wanted.level}\n` +
             `${clock.label()}  ${WEATHER_NAMES[weather.state]}\n` +
             `Pos ${where.x.toFixed(0)}, ${where.y.toFixed(1)}, ${where.z.toFixed(0)}`,
         );
@@ -662,6 +784,14 @@ export class Game {
       screams: this.crowd.screams,
       clockDist: Math.hypot(this.clockTower.x - cam.x, this.clockTower.z - cam.z),
     });
+    const bank = this.crimes.active.find((c) => c.type === 'bankRobbery' && c.phase === 'active');
+    const fires = this.crimes.active.filter((c) => c.fire && c.fire.level > 0.05).sort((x, y) => Math.hypot(x.x - cam.x, x.z - cam.z) - Math.hypot(y.x - cam.x, y.z - cam.z));
+    this.audio.setCrimeSounds({
+      sirens: this.police.sirens(),
+      helis: this.police.helis.filter((h) => h.active).map((h) => h.pos),
+      alarm: bank ? new THREE.Vector3(this.sites.bank.x, this.sites.bank.y + 4, this.sites.bank.z) : null,
+      fire: fires[0] ? new THREE.Vector3(fires[0].x, fires[0].y + 2, fires[0].z) : null,
+    });
     if (this.mode === 'foot') {
       const p = this.player.position;
       let surface: 'concrete' | 'grass' | 'wood' | 'snow' = 'concrete';
@@ -688,6 +818,9 @@ export class Game {
       if (p.distanceToSquared(this.player.position) < 250 * 250) obs.push({ x: p.x, z: p.z, r: v.spec.width / 2 + (v === this.current ? 0.6 : 0.2), kind: 'car' });
     }
     for (const o of this.crowd.roadObstacles) obs.push(o);
+    this.fleet.setCamera(this.renderer.camera);
+    this.fleet.sync(this.loop.paused ? 1 : this.alpha, clock.night, this.loop.paused ? 0 : dt, this.renderer.camera.position);
+    t.aiColliders = this.fleet.cars.map((c) => ({ collider: c.sim.chassis.collider(0), speed: () => c.speed }));
     t.playerVehicleSpeed = this.current ? this.current.sim.speed : 0;
     const focus = this.mode === 'drive' && this.current ? this.current.position : this.player.position;
     const tt = performance.now();
@@ -701,7 +834,10 @@ export class Game {
     const tc = performance.now();
     this.perf.traffic = this.perf.traffic * 0.9 + (tc - tt) * 0.1;
     this.crowd.update(dt, this.renderer.camera, this.player.position, this.mode === 'foot', carInfo, pedActivity, weather.p.rain, this.loop.paused);
-    for (const s of this.crowd.struck) this.knockPedestrian(s);
+    for (const s of this.crowd.struck) {
+      this.knockPedestrian(s);
+      if (this.mode === 'drive') events.emit('player:offense', { kind: 'hitPedestrian', x: s.x, z: s.z });
+    }
     this.perf.crowd = this.perf.crowd * 0.9 + (performance.now() - tc) * 0.1;
     // Recycle cars the player took from traffic once they are far away.
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
@@ -722,6 +858,7 @@ export class Game {
     if (hijack) {
       const door = v.doorPosition();
       events.emit('player:hijack', { x: door.x, z: door.z });
+      events.emit('player:offense', { kind: 'carTheft', x: door.x, z: door.z });
       this.ui.toast(`You took the ${v.label} — the driver runs off`);
     }
     return v;
@@ -751,6 +888,10 @@ export class Game {
     this.gore.update(dt);
     this.updrafts.update(dt, cam.position, clock.daylight);
     this.updatePedActors(dt);
+    if (!this.loop.paused) {
+      this.police.update(dt, this.playerInfo(), this.wantedView());
+      this.crimes.update(dt, cam.position);
+    }
     // HUD.
     const p = this.player;
     const W = window.innerWidth;
@@ -782,8 +923,11 @@ export class Game {
     const rush = p.state === 'glide' ? p.glide.speed / 34 : p.state === 'grapple' ? 0.6 : p.state === 'move' && !p.onGround ? Math.min(1, Math.max(0, -p.velocity.y - 8) / 25) : 0;
     this.audio.setRush(this.loop.paused ? 0 : rush);
     // Minimap markers.
-    const marks: { x: number; z: number; kind: 'hangout' | 'thug'; label?: string }[] = this.enemies.hangouts.map((h) => ({ x: h.x, z: h.z, kind: 'hangout' as const, label: `${h.name} — ${h.gang}` }));
-    for (const t of this.enemies.thugs) if (!t.ko && (t.aware === 'combat' || t.aware === 'alert') && t.dist < 150) marks.push({ x: t.pos.x, z: t.pos.z, kind: 'thug' });
+    const marks: MapMarker[] = this.enemies.hangouts.map((h) => ({ x: h.x, z: h.z, kind: 'hangout' as const, label: `${h.name} — ${h.gangName}`, color: GANGS[h.faction as GangId].color }));
+    for (const l of this.sites.landmarks) marks.push({ x: l.x, z: l.z, kind: l.kind, label: l.label });
+    for (const t of this.enemies.thugs) if (!t.ko && t.faction !== 'vpd' && t.vsPlayer && (t.aware === 'combat' || t.aware === 'alert') && t.dist < 150) marks.push({ x: t.pos.x, z: t.pos.z, kind: 'thug' });
+    for (const m of this.police.markers()) marks.push({ x: m.x, z: m.z, kind: m.kind });
+    for (const c of this.crimes.markers()) marks.push({ x: c.x, z: c.z, kind: 'crime', icon: c.icon, label: c.label });
     this.minimap.markers = marks;
   }
 
@@ -880,6 +1024,98 @@ export class Game {
         this.pedActors.splice(i, 1);
       }
     }
+  }
+
+  // ---- Stage 4: HUD, respawn, test hooks
+
+  private updateCrimeHud(dt: number, where: THREE.Vector3): void {
+    const show = this.started && !this.ui.paused && !this.minimap.open && !this.crimeHud.open;
+    this.minimap.tick(dt);
+    const w = this.wanted;
+    this.minimap.search = w.level > 0 ? { x: w.center.x, z: w.center.z, r: w.radius, seen: w.seen } : null;
+    this.minimap.territory = CONTROL_DISTRICTS.map((d) => {
+      const own = this.territory.owner(d);
+      return { district: d, color: own ? GANGS[own].color : '#000000', strength: own ? this.territory.get(d, own) / 100 : 0 };
+    });
+    this.minimap.legend = GANG_IDS.map((g) => ({ color: GANGS[g].color, text: `${GANGS[g].name} — ${this.territory.districtsOf(g).length} districts` }));
+    this.crimeHud.update(dt, show, {
+      wanted: w.level,
+      searching: w.searching,
+      cool: w.level > 0 ? Math.min(1, w.cool / w.coolTarget) : 0,
+      money: this.stats.money,
+      crimes: this.crimes.markers(),
+      px: where.x,
+      pz: where.z,
+    });
+    this.crimeHud.renderRecord(this.stats, this.territory);
+  }
+
+  /** Busted / knocked out: wake up at the precinct or General Hospital. */
+  private respawnAt(where: 'hospital' | 'precinct'): void {
+    if (this.mode === 'drive' && this.current) {
+      this.current.sim.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      this.current.sim.speed = 0;
+      this.toggleVehicle();
+    }
+    const s = where === 'hospital' ? this.sites.hospital : this.sites.precinct;
+    this.police.clear();
+    this.enemies.policeVsPlayer = 0;
+    this.player.teleport(s.x, s.y + 0.1, s.z, s.yaw);
+    this.player.health = this.player.maxHealth;
+    this.rig.yaw = s.yaw + Math.PI;
+    this.rig.snap(new THREE.Vector3(s.x, s.y + 1.8, s.z));
+    this.world.prime(new THREE.Vector3(s.x, 0, s.z));
+    this.ui.toast(where === 'hospital' ? 'You wake up at Port Vellmoor General Hospital' : 'Released from VPD Precinct 1 after paying a fine');
+  }
+
+  /** Start a crime now (tests / screenshots). `near` = around a point instead of 120–420 m away. */
+  startCrime(type: CrimeType, nearPlayer = false): number {
+    const p = this.playerInfo().pos;
+    const c = this.crimes.start(type, p, nearPlayer ? p : undefined);
+    return c ? c.id : -1;
+  }
+
+  /** Wanted level (tests / debug). */
+  setWanted(level: number): void {
+    const p = this.playerInfo().pos;
+    this.wanted.setLevel(level, p.x, p.z);
+  }
+
+  /** Test / screenshot hook: the AI driver steers the player's car (getaway mode = flee). */
+  private pilot: Driver | null = null;
+  autopilot(mode: 'flee' | 'route' | null, x = 0, z = 0): void {
+    const v = this.current;
+    if (!mode || !v) {
+      this.pilot = null;
+      this.autoDrive = null;
+      return;
+    }
+    const adapter: DrivenCar = {
+      id: 999,
+      sim: v.sim,
+      spec: v.spec,
+      get position() {
+        return v.position;
+      },
+      get speed() {
+        return v.sim.speed;
+      },
+      get yaw() {
+        return v.sim.yaw;
+      },
+      input: { throttle: 0, brake: 0, steer: 0, handbrake: false },
+      siren: true,
+      driver: true,
+      disabled: false,
+      forward: (out = new THREE.Vector3()) => out.set(Math.sin(v.sim.yaw), 0, Math.cos(v.sim.yaw)),
+    };
+    this.pilot = new Driver(adapter, this.traffic.graph);
+    if (mode === 'flee') this.pilot.flee(() => this.police.units.map((u) => u.car.position), 24);
+    else this.pilot.routeTo(new THREE.Vector3(x, 0, z), 20, 8);
+  }
+
+  forceRoadblock(): boolean {
+    return this.police.forceRoadblock(this.playerInfo());
   }
 
   // ---- test hooks (Stage 3)

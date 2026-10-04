@@ -190,6 +190,8 @@ export class Combat {
       to.normalize();
       const c = d < 0.01 ? 1 : to.dot(dir);
       if (c < (hasDir ? 0.35 : -0.2) && d > 2) continue;
+      // Officers who leave the player alone are only hit on purpose (aimed at, close).
+      if (t.faction === 'vpd' && !this.enemies.policeHostile(t) && (!hasDir || c < 0.85 || d > 2.6)) continue;
       const score = c * 2 - d * 0.18 + (t === this.lastTarget ? 0.3 : 0) + (t.knocked ? -3 : 0);
       if (score > bs) {
         bs = score;
@@ -260,7 +262,7 @@ export class Combat {
     this.fx.swirl(c.clone().add(new THREE.Vector3(0, 1, 0)));
     const fwd = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
     const hit = this.enemies.thugs.filter((t) => {
-      if (t.ko || t.knocked) return false;
+      if (t.ko || t.knocked || (t.faction === 'vpd' && !this.enemies.policeHostile(t))) return false;
       const to = t.pos.clone().sub(c).setY(0);
       return to.length() < 3.2 && (to.length() < 1.2 || to.normalize().dot(fwd) > -0.2);
     });

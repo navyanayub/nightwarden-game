@@ -26,9 +26,12 @@ export const GROUPS_PLAYER = groups(G_PLAYER, G_WORLD | G_VEHICLE | G_PROP);
 export const GROUPS_VEHICLE = groups(G_VEHICLE, G_WORLD | G_VEHICLE | G_PLAYER | G_PROP | G_RAGDOLL);
 // Ragdolls do not collide with each other (no self-collision between overlapping limbs).
 export const GROUPS_RAGDOLL = groups(G_RAGDOLL, G_WORLD | G_VEHICLE | G_PROP);
-export const GROUPS_ENEMY = groups(G_ENEMY, G_WORLD | G_PROP);
+// Thugs / officers: their character controller also stops against cars (cars ignore them).
+export const GROUPS_ENEMY = groups(G_ENEMY, G_WORLD | G_PROP | G_VEHICLE);
 /** Traversal probes (ledges, vaults, grapple targets): solid world + props. */
 export const GROUPS_PROBE = groups(0xffff, G_WORLD | G_PROP);
+/** Bullets, cover and line-of-sight checks: world, props and vehicles. */
+export const GROUPS_SHOT = groups(0xffff, G_WORLD | G_PROP | G_VEHICLE);
 /** Camera rays only hit solid world geometry. */
 export const GROUPS_CAMERA_RAY = groups(0xffff, G_WORLD);
 /** Wheel suspension rays hit world + props, never the car itself. */
@@ -82,6 +85,14 @@ export class Physics {
     this.tmpRay.dir = { x: dir.x, y: dir.y, z: dir.z };
     const hit = this.world.castRay(this.tmpRay, maxDist, true, undefined, collisionGroups, exclude);
     return hit ? hit.timeOfImpact : -1;
+  }
+
+  /** Ray cast ignoring one rigid body (a car's own colliders); returns distance and the collider hit. */
+  rayExcluding(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, collisionGroups: number, excludeBody: RAPIER.RigidBody): { dist: number; collider: RAPIER.Collider } | null {
+    this.tmpRay.origin = { x: origin.x, y: origin.y, z: origin.z };
+    this.tmpRay.dir = { x: dir.x, y: dir.y, z: dir.z };
+    const hit = this.world.castRay(this.tmpRay, maxDist, true, undefined, collisionGroups, undefined, excludeBody);
+    return hit ? { dist: hit.timeOfImpact, collider: hit.collider } : null;
   }
 
   /** Ray cast returning distance and surface normal (or null). */

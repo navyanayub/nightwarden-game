@@ -14,6 +14,7 @@ const CONTROLS: [string, [string, string][]][] = [
   ['Traversal', [['Vault low obstacles', 'Run into them'], ['Ledge: shimmy / climb / drop', 'A D / W or Space / S'], ['Grapple to a roof edge', 'G or Right mouse'], ['Glide (in the air)', 'Hold Space'], ['Glide: dive / pull up / turn', 'W / S / A D'], ['Dive-bomb', 'Dive steeply onto enemies']]],
   ['Combat', [['Strike (aim with move keys)', 'Left mouse'], ['Counter (on the ⚡ warning)', 'Q'], ['Dodge / roll (red warning)', 'Space'], ['Cape stun', 'C'], ['Finisher (combo 5+, stunned foe)', 'F'], ['Gadget wheel (hold)', 'Tab'], ['Pick gadget', '1 / 2 / 3'], ['Use gadget', 'R']]],
   ['Driving', [['Accelerate / brake / reverse', 'W / S'], ['Steer', 'A / D'], ['Handbrake (drift)', 'Space'], ['Horn', 'Q'], ['Headlights', 'L'], ['Exit vehicle', 'E']]],
+  ['Crime & police', [['Record: reputation, trust, gang control', 'J'], ['Crimes', 'Scanner feed + map icons'], ['Lose the police', 'Break line of sight, leave the circle, hide on roofs / in alleys']]],
   ['World', [['Fast-forward time (hold)', 'T'], ['Cycle weather', 'Y'], ['City map', 'M'], ['Test gunshot (debug)', 'F6']]],
   ['General', [['Controls panel', 'H'], ['Pause / settings', 'Esc'], ['Performance overlay', 'F3'], ['Camera zoom', 'Mouse wheel']]],
   ['Gamepad', [['Move / steer', 'Left stick'], ['Look', 'Right stick'], ['Throttle / brake', 'RT / LT'], ['Jump / handbrake / glide', 'A'], ['Strike / counter / cape', 'X / Y / B'], ['Grapple / gadgets / use', 'LB / LT / RT'], ['Enter / exit', 'Y'], ['Horn / map', 'D-pad down / right'], ['Fast-forward time', 'D-pad left'], ['Pause', 'Start']]],
@@ -75,7 +76,7 @@ export class UI {
     this.root.innerHTML = `
       <div class="crosshair"></div>
       <div class="hud-district"><small>Port Vellmoor</small><span></span></div>
-      <div class="hud-hint">H — controls &nbsp;·&nbsp; M — map &nbsp;·&nbsp; Esc — pause</div>
+      <div class="hud-hint">H — controls &nbsp;·&nbsp; M — map &nbsp;·&nbsp; J — record &nbsp;·&nbsp; Esc — pause</div>
       <div class="hud-clock"><svg viewBox="0 0 32 32" class="wicon"></svg><div><div class="time">--:--</div><div class="wname"></div></div></div>
       <div class="hud-prompt"></div>
       <div class="hud-vitals"><div class="vbar hp"><div></div></div><div class="vbar ar"><div></div></div><span class="vmode">Civilian</span></div>
@@ -235,7 +236,7 @@ export class UI {
       this.iconsEl.appendChild(e);
       this.iconPool.push(e);
     }
-    const glyph: Record<string, string> = { warn: '⚡', danger: '!', alert: '!', sus: '?', stun: '✦' };
+    const glyph: Record<string, string> = { warn: '⚡', danger: '!', alert: '!', sus: '?', stun: '✦', tied: '⊗' };
     this.iconPool.forEach((e, i) => {
       const it = list[i];
       if (!it) {

@@ -2,6 +2,7 @@
  * NIGHTWARDEN entry point.
  */
 import { Game } from './core/Game';
+import { events } from './core/EventBus';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const game = new Game(canvas);
@@ -9,10 +10,10 @@ const game = new Game(canvas);
 // Debug / test hooks (used by tests/e2e.mjs).
 declare global {
   interface Window {
-    __NW: { game: Game; ready: boolean; error: string | null };
+    __NW: { game: Game; ready: boolean; error: string | null; events: typeof events };
   }
 }
-window.__NW = { game, ready: false, error: null };
+window.__NW = { game, ready: false, error: null, events };
 
 game
   .init()

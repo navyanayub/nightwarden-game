@@ -33,7 +33,9 @@ export type Action =
   | 'finisher'
   | 'gadget1'
   | 'gadget2'
-  | 'gadget3';
+  | 'gadget3'
+  // Stage 4: crime and police.
+  | 'record';
 
 const KEY_BINDINGS: Record<Action, string[]> = {
   forward: ['KeyW', 'ArrowUp'],
@@ -65,6 +67,7 @@ const KEY_BINDINGS: Record<Action, string[]> = {
   gadget1: ['Digit1'],
   gadget2: ['Digit2'],
   gadget3: ['Digit3'],
+  record: ['KeyJ'],
 };
 
 // Standard gamepad mapping button indices.

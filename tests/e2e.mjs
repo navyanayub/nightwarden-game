@@ -71,6 +71,13 @@ async function main() {
   console.log('render info', info);
 
   // Functional checks (deterministic: steps the simulation directly, independent of frame rate).
+  // Random crimes stay off until the Stage 4 checks so they cannot interfere.
+  await page.evaluate(() => {
+    const g = window.__NW.game;
+    g.crimes.enabled = false;
+    g.crimes.clear();
+    g.police.clear();
+  });
   const func = await page.evaluate(() => {
     const g = window.__NW.game;
     g.loop.paused = true;
@@ -375,6 +382,233 @@ async function main() {
     vig.player.plUp &&
     vig.goreCount > 0;
   if (!vigOk) errors.push(`vigilante check failed: ${JSON.stringify(vig)}`);
+
+  // Stage 4: ten minutes of crime (simulated, logged to screenshots/crime-log.json).
+  const crimeRun = await page.evaluate(() => {
+    const g = window.__NW.game;
+    g.loop.paused = true;
+    g.enemies.clear();
+    g.crimes.clear();
+    g.police.clear();
+    g.setHero(false);
+    g.setWeather('partly');
+    g.setTime(20.5);
+    g.clearDebugCamera();
+    const s = g.world.city.spawn;
+    g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+    g.player.health = 100;
+    g.crimes.enabled = true;
+    g.crimes.spawnT = 5;
+    const t0 = performance.now();
+    const samples = [];
+    for (let k = 0; k < 60; k++) {
+      g.simulate(10);
+      samples.push({ t: (k + 1) * 10, active: g.crimes.active.filter((c) => c.phase !== 'over').length, units: g.police.units.length, fighters: g.enemies.thugs.length, aiCars: g.fleet.cars.length });
+    }
+    const ms = performance.now() - t0;
+    g.crimes.enabled = false;
+    const log = g.crimes.log.map((l) => ({ ...l }));
+    const done = log.filter((l) => l.outcome);
+    const res = {
+      seconds: 600,
+      cpuSeconds: +(ms / 1000).toFixed(1),
+      clock: g.crimes.log.length ? `${log[0].clock} → ${window.__NW.game.env ? '' : ''}` : '',
+      crimes: log,
+      byOutcome: done.reduce((a, l) => ((a[l.outcome] = (a[l.outcome] ?? 0) + 1), a), {}),
+      types: [...new Set(log.map((l) => l.type))],
+      territory: JSON.parse(JSON.stringify(g.territory.control)),
+      shotsFired: g.enemies.gunfire.shots,
+      criminalsCollected: g.police.collected,
+      samples,
+    };
+    g.loop.paused = false;
+    return res;
+  });
+  fs.writeFileSync(path.join(ROOT, 'screenshots', 'crime-log.json'), JSON.stringify(crimeRun, null, 2));
+  console.log('crime log', JSON.stringify({ crimes: crimeRun.crimes.length, types: crimeRun.types, byOutcome: crimeRun.byOutcome, cpuSeconds: crimeRun.cpuSeconds, shots: crimeRun.shotsFired }));
+  for (const c of crimeRun.crimes) console.log(`  t=${c.startedAt}s ${c.clock} ${c.type} (${c.gang}, ${c.district}) -> ${c.outcome ?? 'in progress'}${c.detail ? ': ' + c.detail : ''}`);
+  const ended = crimeRun.crimes.filter((c) => c.outcome);
+  const crimeRunOk = crimeRun.crimes.length >= 6 && crimeRun.types.length >= 4 && ended.length >= crimeRun.crimes.length - 3 && Object.keys(crimeRun.byOutcome).length >= 2;
+  if (!crimeRunOk) errors.push(`crime run check failed: ${JSON.stringify({ n: crimeRun.crimes.length, types: crimeRun.types, byOutcome: crimeRun.byOutcome })}`);
+
+  // Stage 4: stopping crimes, police response, wanted levels, roadblocks, busted / hospital, escape.
+  const police = await page.evaluate(() => {
+    const g = window.__NW.game;
+    const T = g.__THREE;
+    g.loop.paused = true;
+    const reset = () => {
+      g.wanted.clear('test');
+      g.enemies.clear();
+      g.crimes.clear();
+      g.police.clear();
+      g.enemies.spawning = false;
+      if (g.mode === 'drive') g.exitVehicle();
+      const s = g.world.city.spawn;
+      g.teleportPlayer(s.x, s.z, Math.PI, 0.35);
+      g.player.health = 100;
+      g.player.armour = 60;
+      g.simulate(0.5);
+    };
+    g.setTime(13);
+    g.setWeather('partly');
+    reset();
+    const out = {};
+    // Stop a mugging: the hero knocks the mugger out -> tied up, reputation / money / trust / control.
+    g.setHero(true);
+    const st0 = { rep: g.stats.reputation, money: g.stats.money, trust: g.stats.trust };
+    const id = g.startCrime('mugging', true);
+    const c = g.crimes.active.find((x) => x.id === id);
+    const gang = c.gang;
+    const dist = c.district;
+    const ctl0 = g.territory.get(dist, gang);
+    g.simulate(0.5);
+    for (const t of c.criminals) g.enemies.damage(t, 99, g.player.position, { kind: 'strike' });
+    g.simulate(1);
+    out.stop = { outcome: c.outcome, tied: c.criminals.every((t) => t.tied), rep: g.stats.reputation - st0.rep, money: g.stats.money - st0.money, trust: g.stats.trust - st0.trust, control: g.territory.get(dist, gang) - ctl0 };
+    // Police come for the tied criminal.
+    for (let i = 0; i < 12 && g.police.collected === 0; i++) g.simulate(10);
+    out.collected = g.police.collected;
+    // Territory: knocking a gang to zero loses the district.
+    let lost = null;
+    const off = window.__NW.events.on('territory:lost', (e) => (lost = e));
+    g.territory.adjust('tidewater', 'island', -100, 'test');
+    off?.();
+    out.territoryLost = !!lost && g.territory.get('island', 'tidewater') === 0;
+    reset();
+    // Bank robbery: police respond and fight the robbers (NPC gunfight with cover).
+    g.setHero(false);
+    const shots0 = g.enemies.gunfire.shots;
+    const bid = g.startCrime('bankRobbery');
+    const bank = g.crimes.active.find((x) => x.id === bid);
+    bank.policeT = 0;
+    g.simulate(45);
+    out.bank = { units: g.police.units.length, officers: g.enemies.thugs.filter((t) => t.faction === 'vpd').length, shots: g.enemies.gunfire.shots - shots0, phase: bank.phase, outcome: bank.outcome };
+    reset();
+    // Wanted levels: units, tactical vans, helicopters.
+    const levels = [];
+    // On a roof, out of reach of arrests, so every level gets its full response.
+    g.gotoRooftop(18, 60);
+    for (let L = 1; L <= 5; L++) {
+      g.setWanted(L);
+      g.simulate(L === 1 ? 4 : 10);
+      levels.push({ L, units: g.police.units.filter((u) => u.job.k === 'wanted').length, tactical: g.police.units.filter((u) => u.kind === 'tactical').length, helis: g.police.helis.filter((h) => h.active).length });
+    }
+    out.levels = levels;
+    reset();
+    // Level 3 roadblock + spike strip while driving.
+    const v = g.vehicles[0];
+    g.teleportPlayer(v.position.x + 2.5, v.position.z, 0);
+    g.enterVehicle(0);
+    g.setWanted(3);
+    out.roadblock = g.forceRoadblock();
+    const rb = g.police.roadblocks[0];
+    if (rb) {
+      const sx = rb.sx - rb.dx * 50;
+      const sz = rb.sz - rb.dz * 50;
+      const q = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.atan2(rb.dx, rb.dz));
+      v.sim.chassis.setTranslation({ x: sx, y: g.enemies.groundAt(sx, sz, 5) + 1, z: sz }, true);
+      v.sim.chassis.setRotation(q, true);
+      v.sim.chassis.setLinvel({ x: rb.dx * 14, y: 0, z: rb.dz * 14 }, true);
+      g.autoDrive = { throttle: 0.5, steer: 0, brake: 0, handbrake: false };
+      g.simulate(5);
+      g.autoDrive = null;
+      out.flats = v.sim.flats;
+      out.roadblockCars = rb.cars.length;
+    }
+    reset();
+    // Offenses raise the level: running people over with police watching.
+    g.setWanted(0);
+    window.__NW.events.emit('player:offense', { kind: 'koOfficer', x: g.player.position.x, z: g.player.position.z });
+    out.offenseLevel = g.wanted.level;
+    reset();
+    // Busted: level 1, standing still -> precinct with a fine.
+    const busted0 = g.stats.busted;
+    const m0 = g.stats.money;
+    g.setWanted(1);
+    for (let i = 0; i < 40 && g.stats.busted === busted0; i++) g.simulate(1);
+    g.simulate(3);
+    const pr = g.sites.precinct;
+    out.busted = { ok: g.stats.busted > busted0, fine: m0 - g.stats.money, atPrecinct: Math.hypot(g.player.position.x - pr.x, g.player.position.z - pr.z) < 8, level: g.wanted.level };
+    reset();
+    // Knocked out -> General Hospital.
+    const h0 = g.stats.hospital;
+    g.player.hurt(500, g.player.position.clone().add(new T.Vector3(1, 0, 0)));
+    g.simulate(5);
+    const hs = g.sites.hospital;
+    out.hospital = { ok: g.stats.hospital > h0, atHospital: Math.hypot(g.player.position.x - hs.x, g.player.position.z - hs.z) < 8 };
+    reset();
+    // Escape: lose the police (out of sight, out of the search circle, cooldown).
+    g.setWanted(2);
+    g.simulate(13);
+    g.police.clear();
+    const away = g.wanted.center.clone().add(new T.Vector3(320, 0, 0));
+    g.teleportPlayer(away.x, away.z, 0);
+    let t = 0;
+    while (g.wanted.level > 0 && t < 60) {
+      g.simulate(2);
+      t += 2;
+    }
+    out.escape = { cleared: g.wanted.level === 0, seconds: t };
+    // Police Trust: a low-trust hero at a crime scene next to officers is treated as a suspect.
+    reset();
+    g.setHero(true);
+    g.stats.trust = 20;
+    const sid = g.startCrime('mugging', true);
+    const sc = g.crimes.active.find((x) => x.id === sid);
+    if (sc) {
+      g.teleportPlayer(sc.x + 3, sc.z + 3, 0);
+      const o = g.enemies.spawn(g.enemies.makeCrew('vpd', 'police', 'test', sc.x, sc.z), g.player.position.x + 4, g.player.position.z, 'officer', 'pistol');
+      g.simulate(0.2);
+      out.suspect = g.enemies.policeVsPlayer;
+      g.stats.trust = 70;
+      g.simulate(0.2);
+      out.trusted = g.enemies.policeVsPlayer;
+      void o;
+    }
+    g.stats.trust = 40;
+    reset();
+    // Retaliation: pressure from lost control sends an ambush at the hero.
+    g.setHero(true);
+    out.ambush = g.crimes.ambush('ashline', g.player.position.clone());
+    g.simulate(3);
+    out.ambushFighting = g.enemies.thugs.filter((x) => x.crew.kind === 'ambush' && x.aware === 'combat').length;
+    g.enemies.clear();
+    g.setHero(false);
+    g.enemies.spawning = true;
+    g.loop.paused = false;
+    return out;
+  });
+  console.log('police', JSON.stringify(police));
+  const lv = police.levels ?? [];
+  const policeOk =
+    police.stop.outcome === 'stopped' &&
+    police.stop.tied &&
+    police.stop.rep > 0 &&
+    police.stop.money > 0 &&
+    police.stop.control < 0 &&
+    police.collected >= 1 &&
+    police.territoryLost &&
+    police.bank.units >= 3 &&
+    police.bank.shots > 5 &&
+    lv[0]?.units >= 1 &&
+    lv[1]?.units >= 3 &&
+    lv[3]?.tactical >= 1 &&
+    lv[3]?.helis >= 1 &&
+    lv[4]?.helis === 2 &&
+    police.roadblock &&
+    police.flats >= 1 &&
+    police.offenseLevel >= 2 &&
+    police.busted.ok &&
+    police.busted.atPrecinct &&
+    police.busted.fine > 0 &&
+    police.hospital.ok &&
+    police.hospital.atHospital &&
+    police.escape.cleared &&
+    police.suspect === 1 &&
+    police.trusted === 0 &&
+    police.ambush >= 4 &&
+    police.ambushFighting >= 3;
+  if (!policeOk) errors.push(`police check failed: ${JSON.stringify(police)}`);
 
   // Performance log (High preset, busy Midtown, 60+ cars / 150+ pedestrians around).
   const perf = await page.evaluate(async () => {
@@ -704,6 +938,154 @@ async function main() {
       g.setDebugCamera(q.x + 4, q.y - 1.5, q.z + 9, q.x, q.y + 3, q.z - 1);
       g.loop.paused = true;
     }, 4000);
+    // Stage 4: crime and police.
+    const crimeReset = () =>
+      page.evaluate(() => {
+        const g = window.__NW.game;
+        g.loop.paused = false;
+        g.autopilot(null);
+        g.autoDrive = null;
+        if (g.mode === 'drive') g.exitVehicle();
+        g.wanted.clear('test');
+        g.crimes.clear();
+        g.police.clear();
+        g.enemies.clear();
+        g.clearDebugCamera();
+      });
+    await crimeReset();
+    await shot('30-bank-robbery', () => {
+  const g = window.__NW.game;
+  g.crimes.enabled = false;
+  g.enemies.spawning = false;
+  g.enemies.clear();
+  g.setHero(false);
+  g.setWeather('partly');
+  g.setTime(15.6);
+  const b = g.sites.bank;
+  const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw);
+  const sx = fz, sz = -fx;
+  g.teleportPlayer(b.x + fx * 40 - sx * 20, b.z + fz * 40 - sz * 20, 0);
+  const id = g.startCrime('bankRobbery');
+  const c = g.crimes.active.find((x) => x.id === id);
+  c.policeT = 0;
+  g.simulate(22);
+  for (let i = 0; i < 60 && g.enemies.gunfire.live === 0; i++) g.simulate(0.05);
+  g.setDebugCamera(b.x + fx * 15 + sx * 9, b.y + 3.4, b.z + fz * 15 + sz * 9, b.x - fx * 0.5 + sx * 1, b.y + 1.5, b.z - fz * 0.5 + sz * 1);
+  g.loop.paused = true;
+  return { live: g.enemies.gunfire.live, units: g.police.units.map((u) => u.job.k + '/' + u.officers.length), fighters: g.enemies.thugs.map((t) => t.faction[0] + (t.ko ? 'x' : '')).join('') };
+}, 8000);
+    await crimeReset();
+    await shot('31-night-chase-helicopter', () => {
+  const g = window.__NW.game;
+  g.crimes.enabled = false;
+  g.enemies.spawning = false;
+  g.enemies.clear();
+  g.setHero(false);
+  g.setWeather('overcast');
+  g.setTime(22.6);
+  const v = g.vehicles[0];
+  g.teleportPlayer(v.position.x + 2.5, v.position.z, 0);
+  g.enterVehicle(0);
+  g.setWanted(4);
+  g.autopilot('flee');
+  const log = [];
+  for (let i = 0; i < 14; i++) {
+    g.simulate(2);
+    const h = g.police.helis[0];
+    log.push([Math.round(v.position.x), Math.round(v.position.z), v.sim.speed.toFixed(0), h.active ? Math.round(h.pos.distanceTo(v.position)) : '-', g.police.units.map((u) => Math.round(u.car.position.distanceTo(v.position))).join('/')].join(' '));
+  }
+  const p = v.position;
+  const h = g.police.helis[0];
+  const cop = g.police.units.filter((u) => u.job.k === 'wanted').sort((a, b) => a.car.position.distanceTo(p) - b.car.position.distanceTo(p))[0];
+  const c = cop ? cop.car.position : p.clone().add(new g.__THREE.Vector3(10, 0, 0));
+  const d = p.clone().sub(c).setY(0).normalize();
+  const side = new g.__THREE.Vector3(d.z, 0, -d.x);
+  g.setDebugCamera(c.x - d.x * 9 + side.x * 2.5, p.y + 3.6, c.z - d.z * 9 + side.z * 2.5, p.x + d.x * 6, p.y + 5, p.z + d.z * 6);
+  log.push('cop ' + (cop ? Math.round(cop.car.position.distanceTo(p)) : '-') + ' heli ' + Math.round(h.pos.distanceTo(p)) + ' alt ' + Math.round(h.pos.y - p.y));
+  g.loop.paused = true;
+  return log;
+}, 9000);
+    await crimeReset();
+    await shot('32-roadblock-level3', () => {
+  const g = window.__NW.game;
+  const T = g.__THREE;
+  g.crimes.enabled = false;
+  g.enemies.spawning = false;
+  g.enemies.clear();
+  g.setHero(false);
+  g.setWeather('partly');
+  g.setTime(17.9);
+  const v = g.vehicles[0];
+  g.teleportPlayer(v.position.x + 2.5, v.position.z, 0);
+  g.enterVehicle(0);
+  g.setWanted(3);
+  g.police.clear();
+  const ok = g.forceRoadblock();
+  const rb = g.police.roadblocks[0];
+  if (!rb) return 'no roadblock';
+  const sx = rb.sx - rb.dx * 24, sz = rb.sz - rb.dz * 24;
+  const q = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.atan2(rb.dx, rb.dz));
+  v.sim.chassis.setTranslation({ x: sx, y: g.enemies.groundAt(sx, sz, 5) + 0.9, z: sz }, true);
+  v.sim.chassis.setRotation(q, true);
+  v.sim.chassis.setLinvel({ x: rb.dx * 9, y: 0, z: rb.dz * 9 }, true);
+  g.autoDrive = { throttle: 0.15, steer: 0, brake: 0, handbrake: false };
+  g.world.prime(new T.Vector3(rb.cx, 0, rb.cz));
+  g.simulate(1.2);
+  const p = v.position;
+  const side = new T.Vector3(rb.dz, 0, -rb.dx);
+  const W = rb.half / 0.27;
+  const rx = rb.ax, rz = rb.az;
+  const carX = rb.cx + rx * W * 0.22, carZ = rb.cz + rz * W * 0.22;
+  const cx = rb.sx - rb.dx * 7 + rx * (W * 0.27 + 1.5), cz = rb.sz - rb.dz * 7 + rz * (W * 0.27 + 1.5);
+  g.setDebugCamera(cx, p.y + 1.9, cz, carX - rx * 2.5, p.y + 0.7, carZ - rz * 2.5);
+  g.loop.paused = true;
+  return { ok, officers: rb.officers.map((o) => o.aware), dist: Math.round(Math.hypot(p.x - rb.cx, p.z - rb.cz)) };
+}, 9000);
+    await crimeReset();
+    await shot('33-arson-night', () => {
+  const g = window.__NW.game;
+  g.crimes.enabled = false;
+  g.enemies.spawning = false;
+  g.enemies.clear();
+  g.setWeather('clear');
+  g.setTime(21.8);
+  const sp = g.world.city.spawn;
+  const shop = g.sites.shops.filter((x) => x.district === 'oldtown' || x.district === 'midtown').sort((a, b) => Math.hypot(a.x - sp.x, a.z - sp.z) - Math.hypot(b.x - sp.x, b.z - sp.z))[0];
+  g.teleportPlayer(shop.x + Math.sin(shop.yaw) * 20, shop.z + Math.cos(shop.yaw) * 20, 0);
+  const id = g.startCrime('arson', true);
+  const c = g.crimes.active.find((x) => x.id === id);
+  if (!c) return 'no arson';
+  c.policeT = 999;
+  g.simulate(40);
+  const f = c.fire;
+  const n = f.normal;
+  const sx = n.z, sz = -n.x;
+  g.setDebugCamera(f.pos.x + n.x * 13 + sx * 6, f.pos.y + 3.2, f.pos.z + n.z * 13 + sz * 6, f.pos.x, f.pos.y + 2.4, f.pos.z);
+  g.loop.paused = true;
+  return { level: f.level.toFixed(2), crim: c.criminals.length };
+}, 8000);
+    await crimeReset();
+    await shot('34-hostage-warehouse', () => {
+  const g = window.__NW.game;
+  g.crimes.enabled = false;
+  g.enemies.spawning = false;
+  g.enemies.clear();
+  g.setWeather('partly');
+  g.setTime(14);
+  const w = g.sites.warehouses[0];
+  g.teleportPlayer(w.door.x, w.door.z, w.yaw + Math.PI);
+  const id = g.startCrime('hostage', true);
+  const c = g.crimes.active.find((x) => x.id === id);
+  if (!c) return 'no hostage';
+  c.policeT = 999;
+  g.simulate(3);
+  const a = w.local(6, 5.5);
+  const t = w.local(-1.5, -1.5);
+  g.setDebugCamera(a.x, w.y + 3.2, a.z, t.x, w.y + 0.9, t.z);
+  g.loop.paused = true;
+  return { crim: c.criminals.length, w: [Math.round(w.x), Math.round(w.z)] };
+}, 8000);
+    await crimeReset();
     await page.evaluate(() => {
       const g = window.__NW.game;
       g.loop.paused = false;
@@ -755,6 +1137,14 @@ async function main() {
       await ui.keyboard.press('KeyM');
       const mapClosed = await ui.waitForFunction(() => !window.__NW.game.minimap.open && !window.__NW.game.loop.paused, null, { timeout: 120000, polling: 500 }).then(() => true, () => false);
       if (!mapOpened || !mapClosed) errors.push(`map toggle failed ${JSON.stringify({ mapOpened, mapClosed })}`);
+      // Record screen (J): reputation, Police Trust, gang control.
+      await ui.keyboard.press('KeyJ');
+      const recOpened = await ui.waitForFunction(() => window.__NW.game.crimeHud.open, null, { timeout: 120000, polling: 500 }).then(() => true, () => false);
+      await ui.waitForTimeout(2000);
+      await ui.screenshot({ path: path.join(dir, 'ui-06-record.png') });
+      await ui.keyboard.press('KeyJ');
+      const recClosed = await ui.waitForFunction(() => !window.__NW.game.crimeHud.open && !window.__NW.game.loop.paused, null, { timeout: 120000, polling: 500 }).then(() => true, () => false);
+      if (!recOpened || !recClosed) errors.push(`record toggle failed ${JSON.stringify({ recOpened, recClosed })}`);
       console.log('ui flow', { paused, preset, resumed });
       if (!paused || preset !== 'medium' || !resumed) errors.push(`ui flow failed ${JSON.stringify({ paused, preset, resumed })}`);
       await ui.evaluate(() => localStorage.removeItem('nightwarden.settings.v1'));

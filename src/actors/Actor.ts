@@ -63,6 +63,15 @@ export const CROWD_TO_ACTOR: Record<ClipName, ActorClip> = {
 };
 
 export type WeaponKind = 'fists' | 'pipe' | 'knife' | 'pistol';
+export type HatKind = 'none' | 'beanie' | 'cap' | 'helmet' | 'flatcap';
+export type VestKind = 'none' | 'patrol' | 'plate';
+
+/** Worn extras: hat (rigid on the head) and vest (rigid on the chest), tinted per faction. */
+export interface Gear {
+  hat?: HatKind;
+  hatColor?: [number, number, number];
+  vest?: VestKind;
+}
 
 interface Template {
   scene: THREE.Object3D;
@@ -74,6 +83,9 @@ export class ActorKit {
   private hairs: THREE.Object3D[][] = [];
   clips = new Map<string, THREE.AnimationClip>();
   private malePelvis = 1;
+  /** Bind-space skull boxes per gender (from the buzzed hair meshes), to fit hats. */
+  private skulls: THREE.Box3[] = [];
+  private gearMats = new Map<string, THREE.MeshStandardMaterial>();
   readonly weaponMats = {
     steel: new THREE.MeshStandardMaterial({ color: 0x6c7076, metalness: 0.9, roughness: 0.38 }),
     rust: new THREE.MeshStandardMaterial({ color: 0x5a3e2c, metalness: 0.6, roughness: 0.7 }),
@@ -110,6 +122,121 @@ export class ActorKit {
       [hairs[0].scene, hairs[1].scene, hairs[1].scene, hairs[2].scene],
       [hairs[3].scene, hairs[4].scene, hairs[5].scene],
     ];
+    for (const h of [hairs[1].scene, hairs[5].scene]) {
+      h.updateMatrixWorld(true);
+      this.skulls.push(new THREE.Box3().setFromObject(h));
+    }
+  }
+
+  gearMat(key: string, color: [number, number, number], rough = 0.8, metal = 0): THREE.MeshStandardMaterial {
+    const k = `${key}:${color.map((c) => c.toFixed(3)).join(',')}`;
+    let m = this.gearMats.get(k);
+    if (!m) {
+      m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...color), roughness: rough, metalness: metal });
+      this.gearMats.set(k, m);
+    }
+    return m;
+  }
+
+  /** Hat mesh in the model's bind space, fitted to the gender's skull box. */
+  hatMesh(kind: HatKind, gender: 0 | 1, color: [number, number, number]): THREE.Object3D | null {
+    if (kind === 'none') return null;
+    const b = this.skulls[gender];
+    const c = b.getCenter(new THREE.Vector3());
+    const sz = b.getSize(new THREE.Vector3());
+    const g = new THREE.Group();
+    const top = b.max.y;
+    const rx = sz.x * 0.56;
+    const rz = sz.z * 0.56;
+    const cloth = this.gearMat('cloth', color, 0.92);
+    const dark = this.gearMat('dark', [0.02, 0.02, 0.025], 0.4, 0.1);
+    if (kind === 'beanie' || kind === 'helmet' || kind === 'flatcap') {
+      const k = kind === 'helmet' ? 1.14 : kind === 'flatcap' ? 1.06 : 1.05;
+      const base = top - sz.y * (kind === 'helmet' ? 0.62 : kind === 'flatcap' ? 0.32 : 0.55);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), kind === 'helmet' ? this.gearMat('helmet', color, 0.55, 0.15) : cloth);
+      dome.scale.set(rx * k, (top - base) * (kind === 'flatcap' ? 1.05 : 1.12) + 0.012, rz * k);
+      dome.position.set(c.x, base, c.z + (kind === 'flatcap' ? 0.008 : 0));
+      g.add(dome);
+      if (kind === 'beanie') {
+        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 18, 1, true), cloth);
+        cuff.scale.set(rx * k + 0.008, 0.045, rz * k + 0.008);
+        cuff.position.set(c.x, base + 0.018, c.z);
+        g.add(cuff);
+      } else if (kind === 'helmet') {
+        const visor = new THREE.Mesh(new THREE.BoxGeometry(rx * 1.7, 0.035, 0.02), dark);
+        visor.position.set(c.x, base + 0.035, c.z + rz * k + 0.004);
+        g.add(visor);
+      } else {
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.012, 16, 1, false, -Math.PI / 2, Math.PI), cloth);
+        brim.scale.set(rx * 0.9, 1, rz * 0.7);
+        brim.position.set(c.x, base + 0.012, c.z + rz * 0.75);
+        g.add(brim);
+      }
+    } else if (kind === 'cap') {
+      // Peaked patrol cap: flared crown, band, black visor and a badge.
+      const crownH = 0.085;
+      const y0 = top - 0.055;
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1, crownH, 20), cloth);
+      crown.scale.set(rx * 1.02, 1, rz * 1.04);
+      crown.position.set(c.x, y0 + crownH / 2, c.z);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.03, 20, 1, true), this.gearMat('band', [0.05, 0.06, 0.08], 0.6));
+      band.scale.set(rx * 1.03, 1, rz * 1.05);
+      band.position.set(c.x, y0 + 0.016, c.z);
+      const visor = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.01, 16, 1, false, -Math.PI / 2, Math.PI), dark);
+      visor.scale.set(rx * 0.95, 1, rz * 0.62);
+      visor.position.set(c.x, y0 + 0.004, c.z + rz * 0.72);
+      visor.rotation.x = 0.18;
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.008), this.gearMat('badge', [0.8, 0.78, 0.7], 0.25, 0.9));
+      badge.position.set(c.x, y0 + 0.05, c.z + rz * 1.06);
+      g.add(crown, band, visor, badge);
+    }
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+    return g;
+  }
+
+  /** Vest in bind space around the chest (patrol: dark with reflective bands; plate: tactical carrier). */
+  vestMesh(kind: VestKind, bones: Map<string, THREE.Bone>): THREE.Object3D | null {
+    if (kind === 'none') return null;
+    const p = (n: string) => bones.get(n)!.getWorldPosition(new THREE.Vector3());
+    const s2 = p('spine_02');
+    const neck = p('neck_01');
+    const shoulderW = p('upperarm_l').distanceTo(p('upperarm_r'));
+    const y0 = s2.y - 0.1;
+    const y1 = neck.y - 0.07;
+    const h = y1 - y0;
+    const g = new THREE.Group();
+    const plate = kind === 'plate';
+    const mat = plate ? this.gearMat('plate', [0.07, 0.075, 0.07], 0.85) : this.gearMat('vest', [0.025, 0.03, 0.05], 0.75);
+    const shell = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, h, 14, 1, false), mat);
+    shell.scale.set(shoulderW * (plate ? 0.47 : 0.43), 1, plate ? 0.16 : 0.135);
+    shell.position.set(s2.x, y0 + h / 2, s2.z + 0.015);
+    g.add(shell);
+    if (plate) {
+      const pouchMat = this.gearMat('pouch', [0.09, 0.09, 0.08], 0.9);
+      for (const px of [-0.09, 0, 0.09]) {
+        const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.09, 0.05), pouchMat);
+        pouch.position.set(s2.x + px, y0 + 0.07, s2.z + 0.17);
+        g.add(pouch);
+      }
+      const radio = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.04), this.gearMat('dark', [0.02, 0.02, 0.025], 0.4, 0.1));
+      radio.position.set(s2.x + 0.12, y0 + h * 0.7, s2.z + 0.16);
+      g.add(radio);
+    } else {
+      // Reflective bands catch headlights / torches.
+      const refl = this.gearMat('reflect', [0.75, 0.78, 0.8], 0.3, 0.2);
+      for (const yy of [0.28, 0.55]) {
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.035, 14, 1, true), refl);
+        band.scale.set(shoulderW * 0.435, 1, 0.137);
+        band.position.set(s2.x, y0 + h * yy, s2.z + 0.015);
+        g.add(band);
+      }
+    }
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+    });
+    return g;
   }
 
   clip(name: ActorClip | string): THREE.AnimationClip {
@@ -119,11 +246,11 @@ export class ActorKit {
     return c;
   }
 
-  create(look: Look, weapon: WeaponKind = 'fists', shield = false): Actor {
+  create(look: Look, weapon: WeaponKind = 'fists', shield = false, gear: Gear = {}): Actor {
     const t = this.templates[look.gender];
     const model = skeletonClone(t.scene);
     const hs = t.pelvisY / this.malePelvis;
-    return new Actor(this, model, look, hs, this.hairs[look.gender], { weapon, shield });
+    return new Actor(this, model, look, hs, this.hairs[look.gender], { weapon, shield, gear });
   }
 
   /** Weapon / shield meshes, authored in the model's bind space around the right/left hand. */
@@ -248,7 +375,7 @@ export class Actor {
     look: Look,
     readonly heightScale: number,
     hairs: THREE.Object3D[],
-    gear: { weapon: WeaponKind; shield: boolean } = { weapon: 'fists', shield: false },
+    gear: { weapon: WeaponKind; shield: boolean; gear?: Gear } = { weapon: 'fists', shield: false },
   ) {
     this.model = model;
     this.look = look;
@@ -306,6 +433,19 @@ export class Actor {
       head.attach(hc);
     }
     this.attachGear(gear.weapon, gear.shield);
+    const worn = gear.gear ?? {};
+    const hat = kit.hatMesh(worn.hat ?? 'none', look.gender, worn.hatColor ?? [0.05, 0.05, 0.06]);
+    if (hat) {
+      model.add(hat);
+      hat.updateMatrixWorld(true);
+      head.attach(hat);
+    }
+    const vest = kit.vestMesh(worn.vest ?? 'none', this.bones);
+    if (vest) {
+      model.add(vest);
+      vest.updateMatrixWorld(true);
+      this.bones.get('spine_03')!.attach(vest);
+    }
     model.scale.set(look.girth * look.height, look.height, look.girth * look.height);
     this.root.add(model);
     this.mixer = new THREE.AnimationMixer(model);
@@ -344,6 +484,20 @@ export class Actor {
       this.shieldObj = s;
     }
   }
+
+  /** Zip-tie the wrists (captured criminals). */
+  tie(): void {
+    if (this.tied) return;
+    this.tied = true;
+    const mat = this.kit.gearMat('tie', [0.85, 0.55, 0.05], 0.5);
+    for (const n of ['hand_l', 'hand_r']) {
+      const r = new THREE.Mesh(new THREE.TorusGeometry(0.042, 0.009, 5, 12), mat);
+      r.rotation.y = Math.PI / 2;
+      this.bones.get(n)!.add(r);
+    }
+  }
+
+  tied = false;
 
   /** Remove the held weapon from the hand; returns its world transform (to drop or fly away). */
   dropWeapon(): THREE.Object3D | null {

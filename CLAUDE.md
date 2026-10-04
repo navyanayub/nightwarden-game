@@ -59,7 +59,7 @@ src/
                            light, shadows, dynamic sky-probe IBL), FogEffect (height fog,
                            aerial perspective, harbour fog bank, exposure), SkyShared,
                            WeatherFX (GPU rain, splashes, lightning bolt), ScreenDropsEffect
-  world/                   WorldConfig, Terrain, CityLayout (street plan & specs), MeshBuilder,
+  world/                   FireFX (arson flames + smoke), WorldConfig, Terrain, CityLayout (street plan & specs), MeshBuilder,
                            Materials, BuildingGen, RoadGen, Landmarks, Props, Trees, Water,
                            Signage, NightLights (lamp light pool, light pools, wet streaks,
                            lighthouse beam), Flags, Updrafts (chimney / roof-vent columns + steam),
@@ -73,20 +73,32 @@ src/
   physics/                 Ragdoll (11-body jointed Rapier ragdoll), RagdollRig (anim ⇄ ragdoll,
                            get-up from front/back)
   combat/                  Combat (freeflow strikes, counters, cape stun, finishers, gadgets,
-                           slow-mo, FX), Gore (optional limb detachment)
-  vehicles/                VehicleModels (9 parametric procedural vehicles), VehicleSim
-                           (headless physics, per-type spec), Vehicle (drivable + HeadlightRig)
-  ai/                      LaneGraph (lanes, junction connections, conflicts, signal timing),
+                           slow-mo, FX), Gore (optional limb detachment), Gunfire (instanced
+                           tracers, muzzle flashes, sparks, dust, bullet marks)
+  vehicles/                VehicleModels (11 parametric procedural vehicles incl. VPD Interceptor
+                           / Bastion), VehicleSim (headless physics, per-type spec, punctures),
+                           Vehicle (drivable + HeadlightRig), AICar (AI-driven physical car drawn
+                           by the traffic instancing), Fleet (all AI cars, spawn points)
+  crime/                   Gangs (3 gangs + Territory control), Crimes (crime director, 9 types,
+                           outcomes, retaliation), Sites (bank, hospital, precinct, shops,
+                           warehouses, street / kerb points), Wanted, Stats
+  police/                  Police (units, dispatch, pursuit, roadblocks + spike strips,
+                           detection), Helicopter (VPD air unit + searchlight)
+  ai/                      Driver (A* lane routing, pure pursuit, pursuit tactics, getaway),
+                           LaneGraph (lanes, junction connections, conflicts, signal timing),
                            Traffic (IDM sim, junction logic, buses, spawning, crashes),
                            TrafficRender (instanced cars), SignalLights, Crowd (pedestrian
                            behaviours), CrowdRender (GPU-skinned instanced people), AnimBaker
-                           (+ exported twoBoneIK / aimBone), Enemies (gangs, hangouts, thug AI)
+                           (+ exported twoBoneIK / aimBone), Enemies (every fighter on foot:
+                           gang members + police officers, factions, cover gunfights, hangouts)
   systems/                 Clock (24 h game clock, sun/moon), Weather (states, wind,
                            lightning, wetness), Environment (per-frame clock/weather wiring)
   ui/                      UI.ts + styles.css (loading, HUD clock/weather, speedometer, pause
                            with graphics/audio/day length/gore, controls, F3, health/armour,
                            combo, gadget wheel, enemy icons, grapple reticle), Minimap (+ M map,
-                           hangout / thug markers)
+                           hangouts, crimes, police, landmarks, search circle, territory
+                           shading), CrimeHUD (notifications, crime timers, wanted badges,
+                           money, scanner feed, news ticker, J record screen)
   audio/                   AudioManager (buses, 3D sounds, synths, ambience, music)
   types/                   ambient type declarations (n8ao)
 tests/
@@ -95,6 +107,8 @@ tests/
   shots.mjs                one-off screenshot: node tests/shots.mjs out.png "query" "cam" ms "js"
   perf.mjs                 performance log (perf-high.json)
   debug-eval.mjs           evaluate an expression in the running game (debug helper)
+  eval-query.mjs           same with URL flags + async expression: node tests/eval-query.mjs
+                           "norender&nocrime" "(async () => { ... })()"  (fast logic checks)
 tools/
   fetch_assets.py          download raw CC0 assets into .cache/raw (gitignored)
   build-assets.mjs         optimise raw assets into public/assets
@@ -114,6 +128,12 @@ tools/
   (north, terrain up to ~30 m, suburban houses), Vellmoor Park (north-east, lake, paths,
   pavilion). Gullhaven Island airfield (runway 18/36, taxiway, hangars, terminal, tower) lies
   east, reached by the Narrows suspension bridge along z = −85 (towers at x = 880 / 1100).
+- Stage 4 sites (`crime/Sites.ts`, chosen from the generated city): **Brightwater Savings Bank**
+  (a street-facing Midtown shop building, sign + alarm lamp), **Port Vellmoor General
+  Hospital** (Midtown/Hills, green H emblem) and **VPD Precinct 1** (Old Town/Midtown, blue
+  lamps) — the respawn points; two enterable warehouses (**Coldwater Storage**, Industrial;
+  **Pier Nine Sheds**, Harbour) placed on clear ground ≥ 22 m from any lane, with a door gap,
+  a roof hatch over a skylight and their own colliders.
 - Everything is generated from `WORLD_SEED` in `src/core/Random.ts`. Never use `Math.random`
   in generation code — use `rngFor(...)` / `hashN(...)` so results don't depend on order.
 - Street grid: forced lines in `FORCED_X/FORCED_Z`, remaining lines randomly spaced (~128 m);
@@ -129,7 +149,7 @@ tools/
   binding table. Stage 3 actions: hero V, attack LMB, grapple G/RMB, counter Q (also the horn
   while driving), capeStun C, gadgets Tab, useGadget R, finisher F, gadget1–3. Space is jump /
   glide (held in the air) / dodge (in combat) / handbrake. `input.forced` / `input.trigger()`
-  script input for tests.
+  script input for tests. Stage 4: J = record screen (`record`).
 - **Rendering**: renderer does no tone mapping itself; exposure lives in `FogEffect`
   (`uExposure`, set by `Atmosphere` as eye adaptation: 0.5 at noon → ~1.9 at night), tone
   mapping in the EffectPass. Sky colour = Preetham (`SkyShared.skyColor`) flattened by
@@ -284,6 +304,88 @@ tools/
   rigid mesh on the freed ragdoll body, the bone collapses to ~0 on the body, both ends get
   sealed dark caps; pieces are removed after 20 s.
 
+- **Factions** (`ai/Enemies.ts`, Stage 4): every fighter on foot is a `Thug` in a `Crew`
+  (hangout, crime, police unit, ambush) of a `Faction` (`tidewater` | `ashline` | `velvet` |
+  `vpd`). Hostility: police ↔ gang always (gang members are `criminal`), gang ↔ gang only when a
+  crew `feud`s with the other faction, police ↔ player via `policeVsPlayer` (0 ignore, 1 arrest,
+  2 lethal; set each step from the wanted level and Police Trust), gang ↔ player via the Stage 3
+  awareness. Each fighter scans for the nearest visible hostile NPC every 0.5 s (`tgt`; `null` =
+  the player when `vsPlayer`). Player fights keep the token rules (≤2 melee + 1, at level 2+ 2
+  police shooters). NPC melee hits deal 1–2 HP (officer 7 HP, tactical 11, thug 4, brute 11).
+  Gun users run a cover state machine: search 12 ring points for one where a low ray to the foe
+  is blocked and a standing ray is clear, crouch, pop up, aim (warning vs the player), fire 1–3
+  shots through `Gunfire.fire` (hit chance by distance / foe crouching; misses fly on and hit
+  whatever is behind). Officers arrest a slow player (≤ 1.9 m for 2.5 s, or at the door of a
+  stopped car) → `player:busted`. Officers who are not after the player are only targeted on
+  purpose (Combat requires aiming at them); hitting one is an offense. KO'd criminals can be
+  zip-tied (`tie`). Gang looks / weapons / hats come from `crime/Gangs.ts`; police: navy uniform,
+  peaked cap, patrol vest (officer) or helmet + plate carrier (tactical) — `ActorKit.hatMesh` /
+  `vestMesh` fit gear to the skull box of the buzzed-hair mesh, rigid on Head / spine_03.
+- **Gangs & territory** (`crime/Gangs.ts`): Tidewater Crew (Harbour, #2bb3a0), Ashline
+  Syndicate (Industrial, #e8762e), Velvet Hand (Midtown, #c0466d). `Territory.control[district]
+  [gang]` 0..100; stopped crimes lower it, ignored ones raise it (+5); 0 → `territory:lost`
+  (hangouts in that district stop spawning). Lost points build `pressure`; every 15 points a
+  retaliation (`Crimes.ambush` 4–5 thugs closing in on the hero, or `gangPatrol`: a gang car
+  cruising nearby whose crew piles out when they see him; 120 s cooldown, only for the hero).
+- **Crimes** (`crime/Crimes.ts`): a new crime every 35–90 s (÷1.8 at night, ÷1.5 storm, ÷1.2
+  heavy rain), max 3 active, 120–420 m from the player, type weighted by time of day (each type
+  has a night multiplier), site and district, committed by the district's owner gang. Types:
+  mugging (victim cowering, 55 s), car theft (thief kneeling at a parked AICar's door → drives
+  off), shop robbery, armed bank robbery (4–5 Velvet Hand gunmen, kneeling hostages, alarm lamp +
+  bell, getaway car; after 95 s they run to the car → police chase), gang street fight (two
+  feuding crews), hostage situation (warehouse, leash 8.5 m, police set a perimeter at the door),
+  getaway chase (gang car fleeing two units from the start), warehouse deal (two crews + parked
+  cars, police tipped off late), arson (`FireFX` grows on a shopfront). Each emits `crime:start`
+  + a scanner line, gets a map icon + timer, and dispatches police after a per-type delay
+  (`CRIME_DEFS`). Resolution: everyone down → `stopped` if any KO is the player's (criminals get
+  tied, police come to collect them), else `police`; timer out → `failed` (victims hurt / building
+  burnt) or `escaped`; a getaway car that stays > 320 m from all pursuers for 20 s escapes; a
+  stopped / wrecked getaway car → the people inside bail out and fight. Rewards: reputation, cash,
+  +3 trust, −control; news headline (`news`). Victims are Actors (crowd looks).
+- **AI vehicles** (`vehicles/AICar.ts`, `vehicles/Fleet.ts`, `ai/Driver.ts`): physical
+  VehicleSim cars (≤ 14) rendered through `Traffic.extra` (no extra draw calls); traffic treats
+  them as obstacles and their chassis as crash sources. Damage from velocity jumps after a step
+  (`health`, disabled at 0 → hazards). Driver: plan = current lane remainder → A* over lanes
+  (Bezier connection points at junctions, a synthetic curve when there is no legal movement) →
+  the lane nearest the goal (goal on its kerb side) up to the goal's projection. Pure pursuit
+  (look-ahead 5.5–15 m), corner speed from the heading change within braking distance, three
+  steering-aware bumper rays, pull out and pass a stopped car (at once with a siren, else after
+  3 s), stuck → reverse with opposite lock → replan, auto-righting. Pursuit in line of sight:
+  `chase`, `box` (slots ahead / beside / behind), `ram`, `pit` (rear quarter, turn in); else
+  route to the target. Flee: junctions 150–480 m away, far from every pursuer, routing around
+  junctions near them; swerves and handbrake turns.
+- **Police** (`police/Police.ts`): units = AICar (Interceptor: 2 officers, Bastion: 4 tactical)
+  + Driver + Crew, spawned out of view on lanes 130–260 m away (60–160 m from distant scenes).
+  Jobs: `crime` (route with siren, park, dismount, fight), `chase` (getaway car), `wanted`,
+  `collect` (kneel by each downed criminal 2.6 s → removed, `police:collect`), `leave` (re-board,
+  drive off, despawn out of sight). Wanted levels: units 2/4/5/5/6, tactical 0/0/0/1/2, helicopters
+  at 4 and 5, roadblocks (≤ 2) from level 3 while the player drives: two parked cars across the
+  road ~150 m ahead along the player's lane chain, two officers, a spike strip 14 m before them on
+  the player's half (`VehicleSim.puncture` ×2: less grip, top speed 13 m/s). Pursuit tactics by
+  unit order (level 2: chase / PIT, level 3+: PIT, box ahead, box behind, ram; Bastions ram).
+  On foot: drive up, dismount, officers radio-share the suspect's position. Detection
+  (`seenBy`): officers' own sight, two car line-of-sight rays per step (70 m driving / 45 m on
+  foot), helicopter searchlight pool. `witness()` decides whether an offense was seen (officers,
+  units, patrol cars in traffic, helicopters). Traffic also spawns 2.5 % VPD patrol cars.
+- **Helicopter** (`police/Helicopter.ts`): procedural VPD helicopter (6 merged draws), orbits
+  the suspect / search centre at ~48 m, banks and pitches with its acceleration; searchlight =
+  one SpotLight per helicopter created at load (intensity 0 when idle → constant light count) +
+  an additive cone mesh; `sees(p)` = inside the pool with a clear line.
+- **Wanted** (`crime/Wanted.ts`): heat thresholds 25/100/220/400/650 → levels 1–5. Offenses
+  (`player:offense`): hitPedestrian 35 witnessed / 14 reported, carTheft 60 (witnessed only),
+  attackOfficer 45, koOfficer 110, property 16 / 3 (wrecking traffic, ramming police cars).
+  After an offense the police get radio reports for 6–12 s (`reportT`); `known` = seen or lost
+  < 4 s. Unseen: search circle (60 + 28·level m) at the last known position; the cooldown
+  (6 + 3.5·level s) runs while outside the circle or hidden (roof > 7 m up, or within 7 m of an
+  Old Town lane, ×0.7 inside the circle); seen again → reset. Busted → precinct, fine
+  max(150, 10 %); KO (`player:ko`) → hospital, $300; both clear the level (`player:respawn`).
+- **Stats** (`crime/Stats.ts`): money (1500), reputation (10), Police Trust (40; < 30 = suspect
+  at crime scenes next to officers → `policeVsPlayer` 1, ≥ 60 = "let him work" scanner line),
+  outcomes, per-type tallies, captured, busted, hospital.
+- **Stage 4 audio**: 3 pooled positional siren voices (LFO wail) on the nearest units, 2 rotor
+  voices (chopped brown noise + turbine), bank alarm bell, fire roar, a crack per NPC shot
+  (`combat:shot`), radio blips on scanner lines, spike-strip bursts.
+
 ## Coding conventions
 
 - TypeScript strict, no `any` unless unavoidable; no unused locals (build fails).
@@ -304,6 +406,11 @@ tools/
   the 3.5 M target — crowd LOD distances / traffic far-LOD are the levers). Traffic instances
   ≈ 4.5–5.7k tris per car near, paint + lamps only beyond 160 m. 8 real street lights on High
   (2/4/8/12 by preset). Real GPU FPS has not been measured yet (headless = SwiftShader).
+- Stage 4 (headless container CPU): 600 s of simulated crime (`simulate`, logic only) takes
+  ≈ 95–100 s CPU, i.e. ≈ 2.7 ms per 60 Hz step for the whole game including crimes, police,
+  fleet and fights. AI cars add no draw calls (traffic instancing, `police`/`tactical` kinds);
+  Gunfire adds 5 instanced draws; a helicopter 6 (+ beam) when active; each warehouse ≈ 11;
+  fires 7. At most 46 fighters and 14 AI cars exist at once.
 - Stage 3 (headless container CPU, slower than a gaming PC): cape cloth ≈ 1.0 ms, player
   update without the cape ≈ 0.05 ms, five fighting thugs (AI + actors + ragdolls) ≈ 0.2–0.3 ms.
   Each actor ≈ 5 draws (+ shadow) and 8.5k tris; actors hide beyond 150 m, eyes/brows beyond
@@ -367,12 +474,25 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
   `player.cape.stats` / `stretchReport()`, `__probeLedge`, `__probeObstacle`. `simulate()` also
   runs the visual update every 3 fixed steps (animation, ragdoll timers, cape). Scripted input:
   `input.forced = { moveX, moveY, sprint, hold: ['jump', …] }`, `input.trigger(action)`.
-  URL `?hero` starts suited up, `?gore` turns gore on.
+  URL `?hero` starts suited up, `?gore` turns gore on. Stage 4: `startCrime(type, nearPlayer)`,
+  `setWanted(level)`, `forceRoadblock()`, `autopilot('flee' | 'route' | null, x, z)` (the AI
+  driver steers the player's car), `crimes` (`log`, `active`, `enabled`, `ambush`), `police`
+  (`units`, `helis`, `roadblocks`, `collected`), `wanted`, `stats`, `territory`, `fleet`,
+  `sites`; `window.__NW.events` (emit test events). URL `?nocrime` disables random crimes.
 - Stage 3 e2e checks: cape never resets / NaNs and stays < 4× stretch with ≥ −8 cm clearance
   through storm, sprint, jump, ledge, grapple, glide, fight and knock-downs; ledge hang/shimmy/
   climb; grapple lands on the roof; glide sink < 5 m/s, dive > 15 m/s, updraft lift; fight KOs,
   combo, counters, dodges, smoke; ragdolls settle; pedestrian hit → ragdoll → get-up; player
   knock-down → get-up; gore off by default and detaches a limb when on.
+- Stage 4 e2e checks: a 600 s night crime run (≥ 6 crimes, ≥ 4 types, ≥ 2 outcomes, logged to
+  `screenshots/crime-log.json`); stopping a mugging (tied, reputation / money up, control down,
+  police collect the criminal); a district lost at zero control; bank robbery with ≥ 3 units and a
+  gunfight; wanted levels 1–5 (units, tactical vans, 1 then 2 helicopters); a level-3 roadblock
+  whose spike strip punctures the player's car; KO of an officer → level 2; busted at level 1 →
+  precinct + fine; KO → hospital; escaping the search; low trust → suspect, high trust → left
+  alone; a retaliation ambush. Screenshots 30–34: bank robbery, night chase with the helicopter
+  searchlight, level-3 roadblock, arson at night, hostage warehouse; ui-06 record screen.
+- Random crimes are switched off (`crimes.enabled = false`) during the Stage 1–3 checks.
 - Always inspect the screenshots yourself; fix anything flat, blocky, broken or too dark.
 
 ## Roadmap
@@ -388,7 +508,11 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
    wing/wetness, vault/ledges/grapple/glide/updrafts/dive-bomb/fall damage, freeflow combat
    with counters, cape stun, finishers, gadgets, slow-mo and combat camera, gang hangouts with
    tokened thug AI, Rapier ragdolls with get-ups for everyone, optional gore.
-4. **Stage 4 — Crime and police**.
+4. **Stage 4 — Crime and police (done)**: nine dynamic crime types with scanner, map icons,
+   timers and outcomes; three gangs with district territory and retaliation; VPD patrols,
+   tactical vans, helicopters, cover gunfights, pursuit AI (PIT / box / ram) and getaway
+   driving; wanted levels 1–5 with roadblocks and spike strips, escape, busted / hospital;
+   Police Trust; crime HUD, scanner, news ticker and record screen.
 5. **Stage 5 — Dual identity**.
 6. **Stage 6 — Every vehicle type**.
 7. **Stage 7 — Polish, missions and saves**.
@@ -411,7 +535,16 @@ npm run perf                     # High preset, 60+ cars / 150+ people in view -
   fall / T-pose clips; get-ups reuse the death clip backwards and a crouch.
 - The cape has no self-collision; strong storms can fold it over the shoulders briefly. While
   gliding the body doesn't collide with it (the wing shape holds it clear).
-- Combat targets thugs only (pedestrians can't be attacked); there are no explosions yet, so gore
-  only triggers on very fast vehicle hits.
+- Combat targets thugs and officers only (pedestrians can't be attacked); there are no explosions
+  yet, so gore only triggers on very fast vehicle hits.
+- Police and gang drivers follow the lane graph; off-road shortcuts, reversing out of dead ends
+  with traffic and multi-car coordination beyond slot assignment are simple. AI cars collide with
+  traffic only near the player (traffic bodies exist < 70 m).
+- Officers fight on foot without a navmesh (same KCC as thugs); they don't climb to the roof
+  hatch of a warehouse. Hostage takers are kept inside by a leash, not walls-aware AI.
+- Crimes far from the player are fully simulated but their criminals only exist while the crime
+  runs; ignored crimes resolve by timer. Bank / shop interiors are not enterable (robberies
+  happen at the door); only the two warehouses are.
+- Wanted heat is not saved; money / reputation / trust reset on reload (saves are Stage 7).
 - Traffic cars are kinematic until hit; a wreck stays where it stops until it despawns.
 - No positional reverb/occlusion; sounds are mostly synthesised.
