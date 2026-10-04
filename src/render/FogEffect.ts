@@ -18,10 +18,37 @@ uniform float uBaseHeight;
 uniform float uMaxOpacity;
 uniform vec3 uSunTint;
 uniform float uExposure;
+uniform float uBank;
+uniform vec2 uBankDrift;
 ${SKY_GLSL}
 
+// Harbour fog bank footprint (centre, radii) over the harbour waters.
+const vec2 BANK_CENTER = vec2(380.0, 980.0);
+const vec2 BANK_RADII = vec2(900.0, 520.0);
+float fbH(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float fbN(vec2 p) {
+  vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(fbH(i), fbH(i + vec2(1.0, 0.0)), u.x), mix(fbH(i + vec2(0.0, 1.0)), fbH(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+/** Optical depth of the low harbour fog bank along the ray (short raymarch through 2D noise). */
+float bankDepth(vec3 ro, vec3 rd, float dist) {
+  float len = min(dist, 1600.0);
+  float stepL = len / 10.0;
+  float od = 0.0;
+  for (int i = 0; i < 10; i++) {
+    vec3 p = ro + rd * (stepL * (float(i) + 0.5));
+    vec2 q = (p.xz - BANK_CENTER) / BANK_RADII;
+    float area = 1.0 - smoothstep(0.55, 1.0, length(q));
+    float hgt = exp(-max(p.y - 1.0, 0.0) / 24.0);
+    vec2 np = p.xz * 0.006 + uBankDrift;
+    float nz = fbN(np) * 0.6 + fbN(np * 2.3 + 4.1) * 0.4;
+    od += area * hgt * smoothstep(0.22, 0.7, nz);
+  }
+  return od * stepL * 0.022 * uBank;
+}
+
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
-  if (depth >= 0.99999) { outputColor = vec4(inputColor.rgb * uExposure, inputColor.a); return; }
+  bool isSky = depth >= 0.99999;
   vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
   vec4 view = uInvProj * clip;
   view /= view.w;
@@ -29,6 +56,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 ray = world - uCamPos;
   float dist = length(ray);
   vec3 rd = ray / max(dist, 1e-4);
+  if (isSky) dist = 3000.0;
 
   // Analytic integral of density a*exp(-b*(y-h0)) along the ray.
   float a = uDensity;
@@ -42,13 +70,19 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
     fogInt = a * exp(-b * camH) * (1.0 - exp(-b * ry * dist)) / (b * ry);
   }
   float fogAmt = clamp(1.0 - exp(-fogInt), 0.0, uMaxOpacity);
+  if (isSky) fogAmt *= smoothstep(0.0, 1.0, fogAmt * 1.4) * 0.9;
 
   vec3 horizonDir = normalize(vec3(rd.x, max(rd.y, 0.0) * 0.5 + 0.07, rd.z));
-  vec3 fogCol = skyRadiance(horizonDir) * uSkyExposure;
+  vec3 fogCol = skyColor(horizonDir);
   fogCol *= min(1.0, 2.4 / max(max(fogCol.r, max(fogCol.g, fogCol.b)), 1e-3));
   float sunAmt = pow(max(dot(rd, normalize(uSunDir)), 0.0), 6.0);
-  fogCol += uSunTint * sunAmt * 0.25;
-  outputColor = vec4(mix(inputColor.rgb, fogCol, fogAmt) * uExposure, inputColor.a);
+  fogCol += uSunTint * sunAmt * 0.25 * (1.0 - uOvercast);
+  vec3 col = mix(inputColor.rgb, fogCol, fogAmt);
+  if (uBank > 0.01) {
+    float bankAmt = 1.0 - exp(-bankDepth(uCamPos, rd, dist));
+    col = mix(col, fogCol * 1.08 + vec3(0.01), clamp(bankAmt, 0.0, 0.97));
+  }
+  outputColor = vec4(col * uExposure, inputColor.a);
   #ifdef FOG_DEBUG
   outputColor = vec4(fogAmt * 10.0, fogCol.g / 10.0, fogInt * 10.0, 1.0);
   #endif
@@ -57,7 +91,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
 
 export class FogEffect extends Effect {
   constructor() {
-    super('HeightFogEffect', (new URLSearchParams(location.search).has('fogdbg') ? '#define FOG_DEBUG\n' : '') + fragment, {
+    const q = new URLSearchParams(location.search);
+    super('HeightFogEffect', (q.has('fogdbg') ? '#define FOG_DEBUG\n' : '') + fragment, {
       blendFunction: BlendFunction.NORMAL,
       attributes: EffectAttribute.DEPTH,
       uniforms: new Map<string, THREE.Uniform>([
@@ -76,6 +111,13 @@ export class FogEffect extends Effect {
         ['uMieG', new THREE.Uniform(0.8)],
         ['uSkyExposure', new THREE.Uniform(1)],
         ['uExposure', new THREE.Uniform(0.5)],
+        ['uOvercast', new THREE.Uniform(0)],
+        ['uSkyBright', new THREE.Uniform(1)],
+        ['uNightSky', new THREE.Uniform(new THREE.Color(0, 0, 0))],
+        ['uCityGlow', new THREE.Uniform(new THREE.Color(0, 0, 0))],
+        ['uFlash', new THREE.Uniform(0)],
+        ['uBank', new THREE.Uniform(0)],
+        ['uBankDrift', new THREE.Uniform(new THREE.Vector2())],
       ]),
     });
   }
@@ -86,7 +128,7 @@ export class FogEffect extends Effect {
     (this.uniforms.get('uCamPos')!.value as THREE.Vector3).setFromMatrixPosition(camera.matrixWorld);
   }
 
-  set(name: string, value: number | THREE.Vector3 | THREE.Color): void {
+  set(name: string, value: number | THREE.Vector2 | THREE.Vector3 | THREE.Vector4 | THREE.Color): void {
     const u = this.uniforms.get(name);
     if (!u) return;
     if (typeof value === 'number') u.value = value;

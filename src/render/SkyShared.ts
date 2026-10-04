@@ -10,6 +10,11 @@ uniform float uTurbidity;
 uniform float uMie;
 uniform float uMieG;
 uniform float uSkyExposure;
+uniform float uOvercast;
+uniform float uSkyBright;
+uniform vec3 uNightSky;
+uniform vec3 uCityGlow;
+uniform float uFlash;
 
 const float SKY_PI = 3.141592653589793;
 const vec3 SKY_TOTAL_RAYLEIGH = vec3(5.804542996261093E-6, 1.3562911419845635E-5, 3.0265902468824876E-5);
@@ -65,5 +70,26 @@ vec3 skyRadianceFex(vec3 direction, out vec3 FexOut, out vec3 LinOut) {
 vec3 skyRadiance(vec3 direction) {
   vec3 f; vec3 l;
   return skyRadianceFex(direction, f, l);
+}
+
+/**
+ * Final sky colour (exposure applied): Preetham, flattened towards grey under overcast,
+ * darkened by weather, plus the night sky, the city's light-pollution glow near the horizon
+ * and lightning flashes.
+ */
+vec3 skyWeather(vec3 c, vec3 dir, float overcastMix) {
+  vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0)) * uSkyExposure;
+  float lum = dot(zen, vec3(0.2126, 0.7152, 0.0722));
+  vec3 grey = vec3(lum * (1.3 - 0.4 * max(dir.y, 0.0))) * vec3(0.92, 0.96, 1.02);
+  c = mix(c, grey, overcastMix);
+  c *= uSkyBright;
+  float hz = 1.0 - clamp(dir.y * 2.2, 0.0, 1.0);
+  c += uNightSky * (0.7 + 0.3 * max(dir.y, 0.0)) + uCityGlow * hz * hz;
+  c += vec3(0.55, 0.62, 0.9) * uFlash;
+  return c;
+}
+
+vec3 skyColor(vec3 dir) {
+  return skyWeather(skyRadiance(dir) * uSkyExposure, dir, uOvercast);
 }
 `;

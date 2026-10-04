@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import { Rng, hashN } from '../core/Random';
-import type { MeshBuilder, V2, V3 } from './MeshBuilder';
+import { MeshBuilder, type V2, type V3 } from './MeshBuilder';
+import { materials } from './Materials';
 import type { Feature, PropSpec } from './CityLayout';
 import { groundPatch } from './RoadGen';
 import { heightAt, naturalCoast } from './Terrain';
@@ -813,11 +814,15 @@ function airport(mb: MeshBuilder, res: FeatureResult): void {
   const wx = cx - rw / 2 - 30;
   const wz = z0 + 140;
   mb.cylinder('paint_white', wx, y, wz, 0.08, 0.06, 7, 8);
-  mb.pushTRS(wx, y + 6.6, wz, Math.PI / 3);
-  mb.pushTransform(new THREE.Matrix4().makeRotationZ(-Math.PI / 2 + 0.2));
-  mb.lathe('fabric', 0, 0, [[0.45, 0], [0.2, 3.2]], 10, { color: new THREE.Color(0.95, 0.35, 0.05) });
-  mb.popTransform();
-  mb.popTransform();
+  // The sock itself is a separate object that World turns with the wind.
+  const sockMb = new MeshBuilder();
+  sockMb.pushTransform(new THREE.Matrix4().makeRotationZ(-Math.PI / 2 + 0.2));
+  sockMb.lathe('fabric', 0, 0, [[0.45, 0], [0.2, 3.2]], 10, { color: new THREE.Color(0.95, 0.35, 0.05) });
+  sockMb.popTransform();
+  const sock = sockMb.build(materials.m, { name: 'windsock' });
+  sock.position.set(wx, y + 6.6, wz);
+  sock.name = 'windsock';
+  res.animated.push(sock);
   // Fuel tanks.
   for (let k = 0; k < 3; k++) {
     const fx = ax0 - 70 + k * 12;

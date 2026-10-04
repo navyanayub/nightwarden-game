@@ -73,3 +73,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #05070b; col
   font-size: 13px; letter-spacing: 0.12em; opacity: 0; transition: opacity 0.4s; }
 .toast.show { opacity: 1; }
 .crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255, 255, 255, 0.65); box-shadow: 0 0 2px #000; }
+
+/* Stage 2 HUD: clock & weather, minimap, full map, pause sliders */
+.hud-clock { position: absolute; right: 22px; top: 40px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 8px; background: rgba(8, 12, 20, 0.55);
+  border: 1px solid var(--line); border-radius: 4px; text-shadow: 0 1px 2px #000; }
+.hud-clock .wicon { width: 30px; height: 30px; }
+.hud-clock .time { font-size: 20px; font-weight: 800; letter-spacing: 0.08em; color: #f6f1e4; font-variant-numeric: tabular-nums; }
+.hud-clock .wname { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
+.minimap { position: absolute; left: 22px; bottom: 74px; width: 200px; height: 200px; filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.6)); }
+.minimap canvas { width: 100%; height: 100%; }
+.fullmap { position: absolute; inset: 0; display: none; background: #0b1622; }
+.fullmap.show { display: block; }
+.fullmap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fullmap-title { position: absolute; left: 28px; top: 20px; color: var(--gold); letter-spacing: 0.4em; font-weight: 700; font-size: 16px; }
+.fullmap-title small { display: block; margin-top: 4px; letter-spacing: 0.2em; font-weight: 400; font-size: 11px; color: var(--muted); }
+.sliders { display: grid; gap: 8px; }
+.sliders label { display: grid; grid-template-columns: 80px 1fr; align-items: center; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); }
+.sliders input[type='range'] { accent-color: #c9a45c; width: 100%; }
+.panel { max-height: 92vh; overflow-y: auto; }

@@ -258,6 +258,15 @@ export class Player {
     this.mixer.update(dt);
   }
 
+  /** Locomotion cycle phase (0..1; feet strike near 0 and 0.5) and on-ground speed, for footsteps. */
+  get stepPhase(): number {
+    return this.phase;
+  }
+
+  get groundSpeed(): number {
+    return this.grounded && !this.driving ? this.speedSmoothed : 0;
+  }
+
   get feet(): THREE.Vector3 {
     return this.object.position;
   }

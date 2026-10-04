@@ -24,6 +24,8 @@ export class Loop {
   paused = false;
   /** Seconds of simulated time since start. */
   time = 0;
+  /** Rendered frames since start (for real, unclamped FPS measurements). */
+  frames = 0;
 
   constructor(private readonly cb: LoopCallbacks) {}
 
@@ -65,5 +67,6 @@ export class Loop {
     }
     this.cb.update(this.paused ? 0 : dt, this.acc / FIXED_DT);
     this.cb.render(dt);
+    this.frames++;
   }
 }

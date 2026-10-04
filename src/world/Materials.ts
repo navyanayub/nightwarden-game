@@ -15,6 +15,14 @@ export const shared = {
   daylight: { value: 1 },
   interiorStrength: { value: 1 },
   time: { value: 0 },
+  /** 0..1 surface wetness (rain); drives darkening, gloss and puddles. */
+  wetness: { value: 0 },
+  /** 0..1 current rain intensity (puddle ripples). */
+  rain: { value: 0 },
+  /** Fraction of lit windows: x = offices, y = homes, z = shops. */
+  winLit: { value: new THREE.Vector3(0.25, 0.1, 0.92) },
+  /** Wind: x/y = direction (XZ), z = strength 0..1, w = gust 0..1. */
+  wind: { value: new THREE.Vector4(0.8, 0.6, 0.2, 0) },
 };
 
 const NOISE_GLSL = /* glsl */ `
@@ -50,7 +58,47 @@ interface MacroOpts {
   rough?: number;
   /** Darken surfaces near their base (street grime) up to this height (m). 0 = off. */
   grime?: number;
+  /** Collect puddles on horizontal surfaces when wet (roads, pavements). */
+  puddles?: boolean;
 }
+
+/** Wet-surface shading: darker albedo, glossier, puddles with rain ripples on flat ground. */
+const WET_GLSL = /* glsl */ `
+  float nwPuddle = 0.0;
+  {
+    float upF = clamp(vNwNormal.y, 0.0, 1.0);
+    float wetF = uWet * mix(0.45, 1.0, upF);
+    float porous = clamp(roughnessFactor, 0.0, 1.0);
+    diffuseColor.rgb *= mix(1.0, 0.5 + 0.25 * (1.0 - porous), wetF);
+    roughnessFactor = mix(roughnessFactor, 0.1 + roughnessFactor * 0.15, wetF * 0.85);
+    #ifdef NW_PUDDLES
+    if (upF > 0.92) {
+      float pn = nwFbm(vNwWorld.xz * 0.19 + 7.3) + 0.22 * nwNoise(vNwWorld.xz * 1.1);
+      nwPuddle = smoothstep(0.74, 0.8, pn + uWet * 0.1) * smoothstep(0.3, 0.95, uWet);
+      diffuseColor.rgb *= mix(1.0, 0.45, nwPuddle);
+      roughnessFactor = mix(roughnessFactor, 0.03, nwPuddle);
+    }
+    #endif
+  }
+`;
+
+const WET_NORMAL_GLSL = /* glsl */ `
+  #ifdef NW_PUDDLES
+  if (nwPuddle > 0.0) {
+    vec3 nwFlat = normalize(vNormal);
+    // Rain ripples: expanding rings in hashed cells.
+    vec2 rp = vNwWorld.xz * 1.6;
+    vec2 ci = floor(rp);
+    vec2 cf = fract(rp) - 0.5;
+    float ph = fract(uNwTime * 1.3 + nwHash(ci));
+    float rr = length(cf - (vec2(nwHash(ci + 3.1), nwHash(ci + 5.7)) - 0.5) * 0.4);
+    float ring = sin((rr - ph * 0.5) * 60.0) * smoothstep(0.5 * ph + 0.06, 0.5 * ph, rr) * (1.0 - ph) * uRain;
+    vec2 g = cf / max(rr, 1e-3) * ring * 0.16;
+    vec3 rip = (viewMatrix * vec4(g.x, 0.0, g.y, 0.0)).xyz;
+    normal = normalize(mix(normal, normalize(nwFlat + rip), nwPuddle));
+  }
+  #endif
+`;
 
 /** Inject world-space macro variation into a standard material. */
 export function patchMacro(mat: THREE.MeshStandardMaterial, o: MacroOpts): void {
@@ -58,11 +106,15 @@ export function patchMacro(mat: THREE.MeshStandardMaterial, o: MacroOpts): void 
   mat.onBeforeCompile = (shader, renderer) => {
     prev?.call(mat, shader, renderer);
     shader.uniforms.uMacro = { value: new THREE.Vector4(o.scale, o.amount, o.rough ?? 0.1, o.grime ?? 0) };
+    shader.uniforms.uWet = shared.wetness;
+    shader.uniforms.uRain = shared.rain;
+    shader.uniforms.uNwTime = shared.time;
+    if (o.puddles) shader.defines = { ...(shader.defines ?? {}), NW_PUDDLES: '' };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vNwWorld;\nvarying vec3 vNwNormal;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n' + WORLDPOS_VERT);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vNwWorld;\nvarying vec3 vNwNormal;\nuniform vec4 uMacro;\n' + NOISE_GLSL)
+      .replace('#include <common>', '#include <common>\nvarying vec3 vNwWorld;\nvarying vec3 vNwNormal;\nuniform vec4 uMacro;\nuniform float uWet;\nuniform float uRain;\nuniform float uNwTime;\n' + NOISE_GLSL)
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
@@ -81,10 +133,12 @@ export function patchMacro(mat: THREE.MeshStandardMaterial, o: MacroOpts): void 
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = clamp(roughnessFactor + (nwNoise(vNwWorld.xz / (uMacro.x * 0.37)) - 0.5) * uMacro.z * 2.0, 0.02, 1.0);`,
-      );
+        roughnessFactor = clamp(roughnessFactor + (nwNoise(vNwWorld.xz / (uMacro.x * 0.37)) - 0.5) * uMacro.z * 2.0, 0.02, 1.0);
+        ${WET_GLSL}`,
+      )
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + WET_NORMAL_GLSL);
   };
-  mat.customProgramCacheKey = () => `macro-${o.scale}-${o.amount}-${o.rough ?? 0.1}-${o.grime ?? 0}`;
+  mat.customProgramCacheKey = () => `macro-${o.scale}-${o.amount}-${o.rough ?? 0.1}-${o.grime ?? 0}-${o.puddles ? 1 : 0}`;
 }
 
 function pbr(set: PbrSet, tile: number, params: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
@@ -116,6 +170,7 @@ varying vec4 vWin;
 varying vec2 vWinUv;
 uniform float uInteriorStrength;
 uniform float uDaylight;
+uniform vec3 uWinLit;
 
 float ih(float n) { return fract(sin(n * 12.9898 + 4.1414) * 43758.5453); }
 
@@ -143,7 +198,7 @@ vec3 nwInterior(vec2 uv, vec3 viewPos, vec3 nV, vec4 win, out float blindMask) {
   float t = min(min(tF.x, tF.y), tF.z);
   vec3 h = p0 + rd * t;
 
-  float lightOn = step(ih(seed + 7.0), style > 1.5 ? 0.92 : (0.25 + 0.55 * (1.0 - uDaylight)));
+  float lightOn = step(ih(seed + 7.0), style > 1.5 ? uWinLit.z : (style < 0.5 ? uWinLit.x : uWinLit.y));
   vec3 wallCol = mix(vec3(0.62, 0.6, 0.56), vec3(0.75, 0.68, 0.55), ih(seed + 2.0));
   if (ih(seed + 3.0) > 0.7) wallCol = mix(vec3(0.38, 0.47, 0.5), vec3(0.55, 0.42, 0.38), ih(seed + 4.0));
   vec3 floorCol = mix(vec3(0.24, 0.16, 0.1), vec3(0.32, 0.32, 0.34), step(0.5, ih(seed + 5.0)));
@@ -195,7 +250,7 @@ vec3 nwInterior(vec2 uv, vec3 viewPos, vec3 nV, vec4 win, out float blindMask) {
   }
   // Light: lamps when on, else daylight falling off with depth.
   float day = uDaylight * 0.55 * exp(-t * 0.28);
-  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.1 : 0.9);
+  vec3 lamp = lightOn * mix(vec3(1.0, 0.82, 0.6), vec3(0.85, 0.92, 1.0), ih(seed + 15.0)) * (style > 1.5 ? 1.1 : 0.9) * mix(1.0, 0.4, uDaylight);
   vec3 lit = col * shade * (day + lamp);
   // Blinds / curtains drawn on the glass plane.
   float blind = ih(seed + 16.0) * (style > 1.5 ? 0.0 : 0.9);
@@ -212,6 +267,7 @@ function interiorGlass(params: THREE.MeshStandardMaterialParameters, tint: THREE
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uInteriorStrength = { value: strength };
     shader.uniforms.uDaylight = shared.daylight;
+    shader.uniforms.uWinLit = shared.winLit;
     const enabled = settings.q.interiorMapping;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aWin;\nvarying vec4 vWin;\nvarying vec2 vWinUv;')
@@ -244,12 +300,14 @@ function interiorGlass(params: THREE.MeshStandardMaterialParameters, tint: THREE
 const FAR_GLSL = /* glsl */ `
 varying vec4 vWin;
 uniform float uDaylight;
+uniform vec3 uWinLit;
 `;
 
 function farFacade(): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uDaylight = shared.daylight;
+    shader.uniforms.uWinLit = shared.winLit;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec4 aWin;\nvarying vec4 vWin;\nvarying vec3 vNwWorld;\nvarying vec3 vNwNormal;')
       .replace('#include <uv_vertex>', '#include <uv_vertex>\nvWin = aWin;')
@@ -275,8 +333,9 @@ function farFacade(): THREE.MeshStandardMaterial {
             float inY = step(abs(f.y - 0.55), wh * 0.5);
             nwWin = inX * inY * step(0.6, cell.y);
             nwGlass = gi < 0.5 ? vec3(0.05, 0.07, 0.09) : (gi < 1.5 ? vec3(0.09, 0.15, 0.2) : vec3(0.12, 0.13, 0.12));
-            float lit = step(0.82 - 0.4 * (1.0 - uDaylight), nwHash(floor(cell) + floor(vNwWorld.xz / 50.0)));
-            totalEmissiveNw = nwGlass * 0.0 + vec3(1.0, 0.8, 0.55) * lit * 0.35 * nwWin * (1.2 - uDaylight);
+            float lit = step(1.0 - mix(uWinLit.x, uWinLit.y, gi < 0.5 ? 0.3 : 0.7), nwHash(floor(cell) + floor(vNwWorld.xz / 50.0)));
+            vec3 litCol = mix(vec3(1.0, 0.78, 0.5), vec3(0.85, 0.92, 1.0), step(0.6, nwHash(floor(cell) + 3.7)));
+            totalEmissiveNw = litCol * lit * nwWin * (0.015 + 1.1 * pow(1.0 - uDaylight, 1.5));
             diffuseColor.rgb = mix(diffuseColor.rgb * (0.9 + 0.2 * nwNoise(vNwWorld.xy * 0.05 + vNwWorld.zy * 0.05)), nwGlass, nwWin);
           } else if (nW.y > 0.5) {
             diffuseColor.rgb *= 0.55 + 0.1 * nwNoise(vNwWorld.xz * 0.2);
@@ -296,6 +355,7 @@ function farFacade(): THREE.MeshStandardMaterial {
 
 function terrainMaterial(grass: PbrSet, sand: PbrSet, rock: PbrSet): THREE.MeshStandardMaterial {
   const mat = pbr(grass, 5);
+  patchMacro(mat, { scale: 30, amount: 0.0, rough: 0.0 });
   const sandMap = sand.map.clone();
   const rockMap = rock.map.clone();
   const sandNor = sand.normalMap.clone();
@@ -320,7 +380,7 @@ function terrainMaterial(grass: PbrSet, sand: PbrSet, rock: PbrSet): THREE.MeshS
          vec4 rC = texture2D(tRock, vTerrUv / 4.0);
          vec3 w = vSplat / max(vSplat.r + vSplat.g + vSplat.b, 1e-3);
          float gv = 0.85 + 0.3 * texture2D(map, vMapUv * 0.031).g;
-         diffuseColor.rgb *= gC.rgb * vec3(0.62, 0.88, 0.42) * gv * w.r + sC.rgb * vec3(0.95, 0.82, 0.64) * w.g + rC.rgb * vec3(0.55, 0.5, 0.44) * w.b;`,
+         diffuseColor.rgb *= gC.rgb * vec3(0.55, 0.9, 0.36) * gv * w.r + sC.rgb * vec3(0.95, 0.82, 0.64) * w.g + rC.rgb * vec3(0.55, 0.5, 0.44) * w.b;`,
       )
       .replace('#include <color_fragment>', '');
   };
@@ -383,11 +443,11 @@ export class MaterialLibrary {
     };
 
     // Ground surfaces
-    mk('asphalt', 'asphalt_02', 8, { scale: 40, amount: 0.12, rough: 0.12 }, { color: new THREE.Color(0.86, 0.86, 0.88) });
-    mk('pavement', 'concrete_pavement', 3, { scale: 25, amount: 0.1, rough: 0.08 });
-    mk('plaza', 'herringbone_pavement', 2.6, { scale: 30, amount: 0.12 });
-    mk('cobble', 'cobblestone_floor_08', 2.8, { scale: 25, amount: 0.12 });
-    mk('kerb', 'rough_concrete', 1.6, null, { color: new THREE.Color(0.86, 0.85, 0.82) });
+    mk('asphalt', 'asphalt_02', 8, { scale: 40, amount: 0.12, rough: 0.12, puddles: true }, { color: new THREE.Color(0.86, 0.86, 0.88) });
+    mk('pavement', 'concrete_pavement', 3, { scale: 25, amount: 0.1, rough: 0.08, puddles: true });
+    mk('plaza', 'herringbone_pavement', 2.6, { scale: 30, amount: 0.12, puddles: true });
+    mk('cobble', 'cobblestone_floor_08', 2.8, { scale: 25, amount: 0.12, puddles: true });
+    mk('kerb', 'rough_concrete', 1.6, { scale: 10, amount: 0.04 }, { color: new THREE.Color(0.86, 0.85, 0.82) });
     mk('grass', 'leafy_grass', 5, { scale: 18, amount: 0.18, rough: 0.05 }, { color: new THREE.Color(0.62, 0.88, 0.42) });
     mk('sand', 'coast_sand_01', 8, { scale: 30, amount: 0.1 }, { color: new THREE.Color(0.95, 0.82, 0.64) });
     mk('gravel', 'rough_concrete', 3, { scale: 12, amount: 0.25 }, { color: new THREE.Color(0.55, 0.5, 0.46) });
@@ -437,11 +497,18 @@ export class MaterialLibrary {
     std('lamp_glow', { color: 0xffffff, emissive: new THREE.Color(1.0, 0.86, 0.62), emissiveIntensity: 2.2, roughness: 0.4 });
     std('light_red', { color: 0x200000, emissive: new THREE.Color(1, 0.05, 0.03), emissiveIntensity: 0.15, roughness: 0.3 });
     std('light_amber', { color: 0x201000, emissive: new THREE.Color(1, 0.5, 0.02), emissiveIntensity: 0.15, roughness: 0.3 });
+    std('lens_off', { color: 0x050607, roughness: 0.15, metalness: 0.2 });
     std('light_green', { color: 0x002010, emissive: new THREE.Color(0.05, 1, 0.45), emissiveIntensity: 0.15, roughness: 0.3 });
+    // Neon tubes for shop blade signs (emissive brightened at night by World).
+    const neon = (key: string, c: THREE.Color) => std(key, { color: 0x111111, emissive: c, emissiveIntensity: 0.6, roughness: 0.3, vertexColors: false });
+    neon('neon_pink', new THREE.Color(1.0, 0.12, 0.5));
+    neon('neon_cyan', new THREE.Color(0.1, 0.85, 1.0));
+    neon('neon_amber', new THREE.Color(1.0, 0.55, 0.08));
+    neon('neon_green', new THREE.Color(0.25, 1.0, 0.35));
     const mark = std('markings', { color: 0xf2f0e8, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-    patchMacro(mark, { scale: 6, amount: 0.25 });
+    patchMacro(mark, { scale: 6, amount: 0.25, puddles: true });
     const markY = std('markings_yellow', { color: 0xe8b82a, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
-    patchMacro(markY, { scale: 6, amount: 0.25 });
+    patchMacro(markY, { scale: 6, amount: 0.25, puddles: true });
 
     mk('rough_wall', 'rough_concrete', 3, { scale: 12, amount: 0.2 }, { color: new THREE.Color(0.7, 0.69, 0.66) });
     mk('hedge', 'leafy_grass', 1.2, { scale: 4, amount: 0.25 }, { color: new THREE.Color(0.4, 0.62, 0.3) });

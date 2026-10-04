@@ -17,7 +17,8 @@ S = requests.Session()
 S.headers['User-Agent'] = 'Mozilla/5.0 (nightwarden asset fetcher)'
 
 # ---- Poly Haven (CC0) ------------------------------------------------------
-HDRIS = {'kloofendal_48d_partly_cloudy_puresky': '1k'}
+# Stage 2 replaced the HDRI with a dynamic sky probe; nothing to download.
+HDRIS = {}
 
 # id -> resolution
 TEXTURES = {
@@ -119,8 +120,25 @@ def itch(user, game, want, out):
             z.extractall(dest)
 
 
+# ---- Kenney audio (CC0) ----------------------------------------------------
+KENNEY = [('impact-sounds', 'impact')]
+
+
+def kenney(slug, out):
+    dest = os.path.join(RAW, 'kenney', out)
+    if os.path.isdir(dest):
+        return
+    page = S.get(f'https://kenney.nl/assets/{slug}').text
+    url = re.search(r'https://kenney\.nl/media/pages/assets/' + re.escape(slug) + r'/[^"]+\.zip', page).group(0)
+    path = get(url, os.path.join(RAW, 'kenney', out + '.zip'))
+    with zipfile.ZipFile(path) as z:
+        z.extractall(dest)
+
+
 if __name__ == '__main__':
     polyhaven()
     for args in ITCH:
         itch(*args)
+    for args in KENNEY:
+        kenney(*args)
     print('done ->', RAW)

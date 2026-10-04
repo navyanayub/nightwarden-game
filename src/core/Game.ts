@@ -7,7 +7,7 @@ import { Input } from './Input';
 import { events } from './EventBus';
 import { settings } from './Settings';
 import { assets } from './AssetLoader';
-import { physics } from './Physics';
+import { physics, GROUPS_WORLD } from './Physics';
 import { Renderer } from '../render/Renderer';
 import { World } from '../world/World';
 import { Player } from '../player/Player';
@@ -16,8 +16,16 @@ import { HeadlightRig, Vehicle } from '../vehicles/Vehicle';
 import { UI } from '../ui/UI';
 import { AudioManager } from '../audio/AudioManager';
 import { DISTRICT_NAMES, districtAt } from '../world/WorldConfig';
-import { heightAt } from '../world/Terrain';
-import { materials, shared } from '../world/Materials';
+import { heightAt, landSdf, terrainSplat } from '../world/Terrain';
+import { materials } from '../world/Materials';
+import { EnvironmentSystem } from '../systems/Environment';
+import { clock } from '../systems/Clock';
+import { weather, WEATHER_NAMES } from '../systems/Weather';
+import { LaneGraph, signalState, type GNode } from '../ai/LaneGraph';
+import { Traffic, type TrafficCar } from '../ai/Traffic';
+import { SignalLights } from '../ai/SignalLights';
+import { Crowd } from '../ai/Crowd';
+import { Minimap } from '../ui/Minimap';
 
 type Mode = 'foot' | 'drive';
 
@@ -32,6 +40,13 @@ export class Game {
   rig!: CameraRig;
   vehicles: Vehicle[] = [];
   headlights!: HeadlightRig;
+  env!: EnvironmentSystem;
+  traffic!: Traffic;
+  signals!: SignalLights;
+  crowd!: Crowd;
+  minimap!: Minimap;
+  private nearTraffic: TrafficCar | null = null;
+  private vehicleSerial = 0;
   mode: Mode = 'foot';
   current: Vehicle | null = null;
   ready = false;
@@ -55,12 +70,16 @@ export class Game {
     });
     this.ui.onStart = () => this.start();
     this.ui.onResume = () => this.resume();
+    this.ui.onVolume = (k, v) => this.audio.setVolumes({ [k]: v });
+    this.ui.onDayLength = (m) => clock.setDayMinutes(m);
+    this.ui.setVolumes(this.audio.volumes);
+    this.ui.setDayLength(clock.dayMinutes);
     canvas.addEventListener('click', () => {
       if (this.started && !this.ui.paused) this.input.requestPointerLock();
     });
     document.addEventListener('pointerlockchange', () => {
       // Browsers consume the first Esc to release pointer lock: treat that as "pause".
-      if (!document.pointerLockElement && this.started && !this.ui.paused && !this.ui.controlsOpen && !this.automation) this.pause();
+      if (!document.pointerLockElement && this.started && !this.ui.paused && !this.ui.controlsOpen && !this.minimap?.open && !this.automation) this.pause();
     });
   }
 
@@ -84,19 +103,21 @@ export class Game {
     const physDone = job('Physics', 2);
     await physics.init();
     physDone();
-    const envDone = job('Sky & lighting', 2);
-    const hdr = await assets.loadHDR('hdri/kloofendal_48d_partly_cloudy_puresky_1k.hdr');
-    this.renderer.atmosphere.setEnvironment(this.renderer.renderer, hdr);
-    if (this.renderer.dbg.has('noenv')) this.renderer.scene.environmentIntensity = 0;
-    envDone();
     const worldDone = job('Port Vellmoor', 12);
     this.world = new World(this.renderer.scene, this.renderer.renderer);
     await this.world.init(async (label) => {
       assets.report(label);
       await step(label);
     });
-    // Sky-matched reflections for glass and water.
-    this.bakeSkyReflections();
+    // Dynamic sky probe: IBL + glass/water reflections that follow the clock and weather.
+    const atm = this.renderer.atmosphere;
+    atm.onProbe = (tex) => {
+      materials.setReflectionEnv(tex);
+      this.world.setWaterEnv(tex);
+    };
+    if (this.renderer.dbg.has('noenv')) atm.envIntensity = 0;
+    atm.initProbe(this.renderer.renderer);
+    this.env = new EnvironmentSystem(this.renderer, this.world);
     worldDone();
     const playerDone = job('Characters', 3);
     this.player = new Player();
@@ -115,6 +136,27 @@ export class Game {
       this.vehicles.push(v);
     });
     this.headlights = new HeadlightRig(this.renderer.scene);
+    // Traffic: lane graph, signals, bus stops, buses.
+    const trafficDone = job('Traffic', 2);
+    const graph = new LaneGraph(this.world.city);
+    this.traffic = new Traffic(graph, settings.q.traffic);
+    this.renderer.scene.add(this.traffic.render.group);
+    this.signals = new SignalLights(this.world.city, graph);
+    this.renderer.scene.add(this.signals.mesh);
+    for (const st of this.traffic.busStops) {
+      this.world.props.add({ type: 'bus_shelter', x: st.x, y: heightAt(st.x, st.z) + 0.15, z: st.z, yaw: st.yaw });
+      const bx = st.x - Math.sin(st.yaw) * 0.75;
+      const bz = st.z - Math.cos(st.yaw) * 0.75;
+      physics.addStaticBox(bx, heightAt(st.x, st.z) + 1.4, bz, 2.1, 1.3, 0.12, st.yaw, GROUPS_WORLD);
+    }
+    this.traffic.spawnBuses(3);
+    trafficDone();
+    const crowdDone = job('Pedestrians', 3);
+    this.crowd = new Crowd(this.world.city, this.traffic, settings.q.pedestrians);
+    await this.crowd.load();
+    this.renderer.scene.add(this.crowd.render.group);
+    crowdDone();
+    this.minimap = new Minimap(this.ui.root, this.world.city);
     // Debug camera from the URL (?cam=x,y,z,tx,ty,tz) for screenshots.
     const cam = new URLSearchParams(location.search).get('cam');
     if (cam) {
@@ -130,23 +172,6 @@ export class Game {
     events.emit('loading:done');
     if (this.automation) this.start();
     this.loop.start();
-  }
-
-  private bakeSkyReflections(): void {
-    const r = this.renderer;
-    const skyScene = new THREE.Scene();
-    const sky = r.atmosphere.sky.clone();
-    skyScene.add(sky);
-    const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
-    const cubeCam = new THREE.CubeCamera(1, 1000, cubeRT);
-    cubeCam.position.set(0, 2, 0);
-    cubeCam.update(r.renderer, skyScene);
-    const pmrem = new THREE.PMREMGenerator(r.renderer);
-    const env = pmrem.fromCubemap(cubeRT.texture).texture;
-    pmrem.dispose();
-    materials.setReflectionEnv(env);
-    this.world.setWaterEnv(env);
-    cubeRT.dispose();
   }
 
   start(): void {
@@ -184,16 +209,36 @@ export class Game {
     }
     physics.step(dt);
     for (const v of this.vehicles) v.postStep();
+    this.traffic?.detectCrashes();
   }
+
+  /** Smoothed CPU timings (ms) for the F3 overlay and the perf log. */
+  readonly perf = { update: 0, render: 0, traffic: 0, crowd: 0 };
 
   private update(dt: number, alpha: number): void {
     if (!this.ready) return;
+    const t0 = performance.now();
+    this.updateInner(dt, alpha);
+    this.perf.update = this.perf.update * 0.9 + (performance.now() - t0) * 0.1;
+  }
+
+  private updateInner(dt: number, alpha: number): void {
     const input = this.input;
     input.update();
     // Global toggles.
     if (input.pressed('stats')) settings.showStats = !settings.showStats;
     if (input.pressed('controls') && this.started) this.ui.toggleControls();
-    if (input.pressed('pause') && this.started) {
+    if (input.pressed('map') && this.started && !this.ui.paused) {
+      this.minimap.toggle();
+      this.loop.paused = this.minimap.open;
+      if (this.minimap.open) this.input.exitPointerLock();
+      else this.input.requestPointerLock();
+    }
+    if (input.pressed('pause') && this.started && this.minimap.open) {
+      this.minimap.toggle(false);
+      this.loop.paused = false;
+      this.input.requestPointerLock();
+    } else if (input.pressed('pause') && this.started) {
       if (this.ui.controlsOpen) this.ui.toggleControls(false);
       else if (this.ui.paused) this.resume();
       else this.pause();
@@ -203,6 +248,12 @@ export class Game {
       if (this.started) this.rig.look(look.x, look.y);
       this.rig.zoom(input.takeWheel());
       if (input.consume('interact')) this.toggleVehicle();
+      clock.fastForward = input.held('timeskip');
+      if (input.consume('debugShot')) this.gunshot();
+      if (input.consume('weather')) {
+        weather.cycle();
+        this.ui.toast(`Weather: ${WEATHER_NAMES[weather.state]}`);
+      }
       if (input.consume('lights') && this.current) {
         this.current.lightsOn = !this.current.lightsOn;
         this.ui.toast(this.current.lightsOn ? 'Headlights on' : 'Headlights off');
@@ -210,6 +261,7 @@ export class Game {
     }
     for (const v of this.vehicles) v.update(dt, alpha);
     this.headlights.update(this.current);
+    this.updateTraffic(dt);
     this.player.update(dt, alpha);
     this.rescueFromWater();
     if (this.current) {
@@ -234,6 +286,7 @@ export class Game {
     } else this.rig.update(dt, focus);
     // Interaction prompt.
     this.nearVehicle = null;
+    this.nearTraffic = null;
     if (this.mode === 'foot') {
       let best = 3.2;
       for (const v of this.vehicles) {
@@ -246,7 +299,21 @@ export class Game {
         }
       }
     }
-    this.ui.setPrompt(this.nearVehicle ? `<span class="key">E</span> Drive the Corvane Strata` : this.mode === 'drive' && this.current && Math.abs(this.current.sim.speed) < 4 ? `<span class="key">E</span> Exit vehicle` : null);
+    if (this.mode === 'foot' && !this.nearVehicle) {
+      const pp = this.player.object.position;
+      const t = this.traffic.nearest(pp.x, pp.z, 2.4);
+      if (t && t.speed < 3 && Math.abs(t.y - pp.y) < 2.5) this.nearTraffic = t;
+    }
+    const label = (sp: { make: string; model: string }) => `${sp.make} ${sp.model}`;
+    this.ui.setPrompt(
+      this.nearVehicle
+        ? `<span class="key">E</span> Drive the ${this.nearVehicle.label}`
+        : this.nearTraffic
+          ? `<span class="key">E</span> ${this.nearTraffic.driver && this.nearTraffic.state === 'drive' ? 'Take' : 'Drive'} the ${label(this.nearTraffic.spec)}`
+          : this.mode === 'drive' && this.current && Math.abs(this.current.sim.speed) < 4
+            ? `<span class="key">E</span> Exit vehicle`
+            : null,
+    );
     // HUD.
     const cp = this.renderer.camera.position;
     const where = this.mode === 'drive' && this.current ? this.current.position : this.player.object.position;
@@ -254,11 +321,26 @@ export class Game {
     if (this.current) {
       const kmh = Math.abs(this.current.sim.speed) * 3.6;
       this.ui.setSpeedo(true, kmh, this.current.sim.gear < 0 ? 'R' : kmh < 1 && this.input.throttle === 0 ? 'N' : String(this.current.sim.gear), this.current.sim.rpm);
-      this.audio.setEngine(true, this.current.sim.rpm, this.input.throttle);
+      const sim = this.current.sim;
+      const skid = Math.max(0, (sim.lateral - 2.5) / 6) + (this.input.held('handbrake') && Math.abs(sim.speed) > 4 ? 0.5 : 0);
+      this.audio.setEngine(true, sim.rpm, this.autoDrive?.throttle ?? this.input.throttle, Math.min(1, skid));
+      this.audio.setHorn(!this.loop.paused && this.input.held('horn'));
+      if (this.input.pressed('horn')) events.emit('world:alarm', { x: this.current.position.x, z: this.current.position.z, radius: 6, kind: 'pavement' as const });
     } else {
       this.ui.setSpeedo(false);
       this.audio.setEngine(false, 0, 0);
+      this.audio.setHorn(false);
     }
+    this.updateAudio(dt, where);
+    // Clock, weather and minimap.
+    this.ui.setClock(clock.label(), weather.state, WEATHER_NAMES[weather.state], clock.night > 0.5);
+    const cf = new THREE.Vector3();
+    this.renderer.camera.getWorldDirection(cf);
+    const camYaw = Math.atan2(cf.x, cf.z);
+    const heading = this.mode === 'drive' && this.current ? this.current.sim.yaw : this.player.yaw;
+    const zoom = this.mode === 'drive' && this.current ? Math.max(0.42, 0.8 - Math.abs(this.current.sim.speed) * 0.012) : 1;
+    this.minimap.update(where.x, where.z, camYaw, heading, zoom, this.started && !this.ui.paused);
+    this.minimap.drawFull(where.x, where.z, heading);
     // World streaming & atmosphere.
     this.world.update(dt, cp);
     // Shadow box: centred a little ahead of the camera so the visible foreground gets shadows.
@@ -268,8 +350,8 @@ export class Game {
     if (camFwd.lengthSq() > 1e-6) camFwd.normalize();
     const shadowFocus = this.debugCam ? cp.clone().addScaledVector(camFwd, settings.q.shadowRadius * 0.6) : where.clone().addScaledVector(camFwd, settings.q.shadowRadius * 0.35);
     shadowFocus.y = heightAt(shadowFocus.x, shadowFocus.z);
-    this.renderer.atmosphere.update(dt, shadowFocus, this.renderer.fog);
-    shared.daylight.value = 1;
+    this.env.update(dt, where, this.mode === 'drive' && !this.debugCam, this.loop.paused);
+    this.renderer.atmosphere.update(dt, shadowFocus, this.renderer.fog, this.renderer.renderer);
     // Stats overlay.
     this.statsTimer -= dt;
     if (settings.showStats) {
@@ -282,6 +364,9 @@ export class Game {
             `Draw calls ${info.render.calls}\nTriangles ${(info.render.triangles / 1e6).toFixed(2)} M\n` +
             `Geometries ${info.memory.geometries}  Textures ${info.memory.textures}\n` +
             `Chunks building ${this.world.pendingDetail}\n` +
+            `CPU update ${this.perf.update.toFixed(1)} ms (traffic ${this.perf.traffic.toFixed(1)}, crowd ${this.perf.crowd.toFixed(1)})  render ${this.perf.render.toFixed(1)} ms\n` +
+            `Cars ${this.traffic.cars.length}  Pedestrians ${this.crowd.peds.length} (drawn ${this.crowd.render.stats.drawn})\n` +
+            `${clock.label()}  ${WEATHER_NAMES[weather.state]}\n` +
             `Pos ${where.x.toFixed(0)}, ${where.y.toFixed(1)}, ${where.z.toFixed(0)}`,
         );
       }
@@ -290,8 +375,10 @@ export class Game {
   }
 
   private render(dt: number): void {
-    if (!this.ready) return;
+    if (!this.ready || this.renderer.dbg.has('norender')) return;
+    const t0 = performance.now();
     this.renderer.render(dt);
+    this.perf.render = this.perf.render * 0.9 + (performance.now() - t0) * 0.1;
   }
 
   // ---------------------------------------------------------------- automation hooks (tests/tools)
@@ -307,6 +394,68 @@ export class Game {
     this.renderer.camera.position.copy(this.debugCam.pos);
     this.renderer.camera.lookAt(this.debugCam.target);
     this.world.prime(this.debugCam.pos);
+  }
+
+  /** Set the game clock (hours) and refresh the sky probe immediately (tests/tools). */
+  setTime(hours: number): void {
+    clock.set(hours);
+    this.env.update(0, this.player.position, false, true);
+    this.renderer.atmosphere.update(0, this.player.position, this.renderer.fog, this.renderer.renderer);
+  }
+
+  /** Force a weather state instantly (tests/tools). */
+  setWeather(state: Parameters<typeof weather.set>[0]): void {
+    weather.set(state, true);
+  }
+
+  /** Signal phase helper for tests. */
+  readonly __signalState = signalState;
+
+  /** Teleport next to the signalised junction nearest the spawn (tests / screenshots). */
+  gotoJunction(): GNode {
+    const s = this.world.city.spawn;
+    const n = this.traffic.graph.nodes.filter((nd) => nd.signal).sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
+    this.clearDebugCamera();
+    this.teleportPlayer(n.x + n.road!.hx + 4, n.z + n.road!.hz + 4, Math.PI * 1.25);
+    return n;
+  }
+
+  /** Enter (or hijack) the nearest traffic car (tests). */
+  takeNearestTraffic(): void {
+    if (this.mode !== 'foot') return;
+    const p = this.player.position;
+    this.nearVehicle = null;
+    this.nearTraffic = this.traffic.nearest(p.x, p.z, 5);
+    this.toggleVehicle();
+  }
+
+  /** Run traffic + crowd AI for a while without rendering (tests / screenshots). */
+  warmAI(seconds: number): void {
+    const cam = this.renderer.camera;
+    for (let t = 0; t < seconds; t += 0.1) {
+      this.traffic.update(0.1, this.player.position, cam, clock.activity(), 1 - 0.25 * weather.p.rain, clock.night);
+      this.crowd.update(0.1, cam, this.player.position, this.mode === 'foot', null, Math.min(1, 0.12 + clock.activity() * 0.95), weather.p.rain, false);
+    }
+  }
+
+  /** Debug: a gunshot near the player (pedestrians scream, flee or cower). */
+  gunshot(): void {
+    const p = this.player.position;
+    events.emit('world:alarm', { x: p.x, z: p.z, radius: 60, kind: 'gunshot' });
+    this.ui.toast('Bang! (debug gunshot)');
+  }
+
+  /** Release a held lightning flash (tests/tools). */
+  releaseLightning(): void {
+    weather.holdFlash = null;
+  }
+
+  /** Trigger a lightning strike near the camera (tests/tools); `hold` keeps it lit for screenshots. */
+  lightning(hold = false): void {
+    const f = new THREE.Vector3();
+    this.renderer.camera.getWorldDirection(f);
+    weather.strike(this.renderer.camera.position.x, this.renderer.camera.position.z, hold ? { x: f.x, z: f.z } : undefined);
+    weather.holdFlash = hold ? 1.6 : null;
   }
 
   clearDebugCamera(): void {
@@ -361,7 +510,7 @@ export class Game {
     }
     for (const [i, v] of this.vehicles.entries()) {
       if (v.sim.curPos.y > -2.5) continue;
-      const spot = this.world.city.carSpots[i];
+      const spot = this.world.city.carSpots[i] ?? { ...this.world.city.spawn, yaw: 0 };
       if (v === this.current) this.exitVehicle();
       const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), spot.yaw);
       v.sim.chassis.setTranslation({ x: spot.x, y: heightAt(spot.x, spot.z) + 1.2, z: spot.z }, true);
@@ -372,9 +521,120 @@ export class Game {
     }
   }
 
+  // ---------------------------------------------------------------- audio
+
+  private clockTower: { x: number; z: number } | null = null;
+
+  private updateAudio(dt: number, where: THREE.Vector3): void {
+    if (!this.audio.ready) return;
+    if (!this.clockTower) {
+      const ct = this.world.city.features.find((f) => f.type === 'clocktower');
+      this.clockTower = ct ? { x: ct.x, z: ct.z } : { x: 1e6, z: 1e6 };
+    }
+    const cam = this.renderer.camera.position;
+    const cars: { x: number; y: number; z: number; speed: number; bus: boolean }[] = [];
+    for (const c of this.traffic.cars) {
+      if ((c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < 120 * 120) cars.push({ x: c.x, y: c.y, z: c.z, speed: c.speed, bus: !!c.bus });
+    }
+    let crowdNear = 0;
+    for (const p of this.crowd.peds) if ((p.x - cam.x) ** 2 + (p.z - cam.z) ** 2 < 40 * 40) crowdNear++;
+    const sdf = landSdf(cam.x, cam.z);
+    this.audio.update(dt, {
+      camera: this.renderer.camera,
+      district: districtAt(where.x, where.z),
+      night: clock.night,
+      hour: clock.hours,
+      rain: weather.p.rain,
+      wind: (weather.p.wind * 14),
+      fog: weather.p.fog,
+      inCar: this.mode === 'drive' && !this.debugCam,
+      sea: 1 - THREE.MathUtils.smoothstep(sdf, -20, 140),
+      cars,
+      crowdNear,
+      screams: this.crowd.screams,
+      clockDist: Math.hypot(this.clockTower.x - cam.x, this.clockTower.z - cam.z),
+    });
+    if (this.mode === 'foot') {
+      const p = this.player.position;
+      let surface: 'concrete' | 'grass' | 'wood' | 'snow' = 'concrete';
+      const d = districtAt(p.x, p.z);
+      if (!this.crowd.onPavement(p.x, p.z)) {
+        const h = heightAt(p.x, p.z);
+        const [g, sand] = terrainSplat(p.x, p.z, h, 0);
+        if (sand > 0.5) surface = 'snow';
+        else if ((d === 'park' || d === 'hills' || d === 'island') && g > 0.4) surface = 'grass';
+      }
+      this.audio.playerSteps(this.player.stepPhase, this.player.groundSpeed, surface, weather.wetness);
+    }
+  }
+
+  // ---------------------------------------------------------------- traffic
+
+  private updateTraffic(dt: number): void {
+    const t = this.traffic;
+    const obs = t.obstacles;
+    obs.length = 0;
+    if (this.mode === 'foot') obs.push({ x: this.player.position.x, z: this.player.position.z, r: 0.5, kind: 'player' });
+    for (const v of this.vehicles) {
+      const p = v.position;
+      if (p.distanceToSquared(this.player.position) < 250 * 250) obs.push({ x: p.x, z: p.z, r: v.spec.width / 2 + (v === this.current ? 0.6 : 0.2), kind: 'car' });
+    }
+    for (const o of this.crowd.roadObstacles) obs.push(o);
+    t.playerVehicleSpeed = this.current ? this.current.sim.speed : 0;
+    const focus = this.mode === 'drive' && this.current ? this.current.position : this.player.position;
+    const tt = performance.now();
+    t.update(this.loop.paused ? 0 : dt, focus, this.renderer.camera, clock.activity(), 1 - 0.25 * weather.p.rain, clock.night);
+    this.signals.update(t.time);
+    t.draw(clock.night, this.renderer.camera.position);
+    // Pedestrians.
+    const cur = this.current;
+    const carInfo = cur ? { x: cur.position.x, z: cur.position.z, speed: cur.sim.speed, yaw: cur.sim.yaw, onPavement: this.crowd.onPavement(cur.position.x, cur.position.z) } : null;
+    const pedActivity = Math.min(1, 0.12 + clock.activity() * 0.95);
+    const tc = performance.now();
+    this.perf.traffic = this.perf.traffic * 0.9 + (tc - tt) * 0.1;
+    this.crowd.update(dt, this.renderer.camera, this.player.position, this.mode === 'foot', carInfo, pedActivity, weather.p.rain, this.loop.paused);
+    this.perf.crowd = this.perf.crowd * 0.9 + (performance.now() - tc) * 0.1;
+    // Recycle cars the player took from traffic once they are far away.
+    for (let i = this.vehicles.length - 1; i >= 0; i--) {
+      const v = this.vehicles[i];
+      if (!v.fromTraffic || v === this.current) continue;
+      if (v.position.distanceTo(this.player.position) > 350) this.disposeVehicle(v);
+    }
+  }
+
+  /** Turn a traffic car into a drivable vehicle (pulling the driver out if there is one). */
+  private takeTrafficCar(car: TrafficCar): Vehicle {
+    const hijack = car.driver && car.state === 'drive';
+    const v = new Vehicle(`${car.spec.kind}-${++this.vehicleSerial}`, car.color, car.x, car.y + 0.05, car.z, car.yaw, car.spec);
+    v.fromTraffic = true;
+    this.renderer.scene.add(v.object);
+    this.vehicles.push(v);
+    this.traffic.remove(car);
+    if (hijack) {
+      const door = v.doorPosition();
+      events.emit('player:hijack', { x: door.x, z: door.z });
+      this.ui.toast(`You took the ${v.label} — the driver runs off`);
+    }
+    return v;
+  }
+
+  private disposeVehicle(v: Vehicle): void {
+    this.renderer.scene.remove(v.object);
+    physics.world.removeRigidBody(v.sim.chassis);
+    v.object.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.geometry.dispose();
+    });
+    this.vehicles.splice(this.vehicles.indexOf(v), 1);
+  }
+
   // ---------------------------------------------------------------- vehicles
 
   private toggleVehicle(): void {
+    if (this.mode === 'foot' && !this.nearVehicle && this.nearTraffic) {
+      this.nearVehicle = this.takeTrafficCar(this.nearTraffic);
+      this.nearTraffic = null;
+    }
     if (this.mode === 'foot' && this.nearVehicle) {
       const v = this.nearVehicle;
       this.current = v;
@@ -383,7 +643,9 @@ export class Game {
       this.player.driving = true;
       this.player.setEnabled(false);
       this.rig.setMode('vehicle', v.sim.yaw + Math.PI);
-      this.ui.toast('Space = handbrake · L = headlights · E = exit');
+      this.traffic.playerColliders = [];
+      for (let i = 0; i < v.sim.chassis.numColliders(); i++) this.traffic.playerColliders.push(v.sim.chassis.collider(i));
+      this.ui.toast('Space = handbrake · L = headlights · Q = horn · E = exit');
       events.emit('player:enterVehicle', { vehicleId: this.vehicles.indexOf(v) });
     } else if (this.mode === 'drive' && this.current) {
       const v = this.current;
@@ -398,6 +660,7 @@ export class Game {
       this.player.setEnabled(true);
       v.occupied = false;
       this.current = null;
+      this.traffic.playerColliders = [];
       this.mode = 'foot';
       this.rig.setMode('foot', v.sim.yaw + Math.PI);
       events.emit('player:exitVehicle', { vehicleId: this.vehicles.indexOf(v) });

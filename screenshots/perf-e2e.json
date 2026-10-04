@@ -1,0 +1,22 @@
+{
+  "preset": "high",
+  "avgFps": 0.328,
+  "frames": 10,
+  "seconds": 30.5,
+  "trianglesPerCar": [
+    4542,
+    5046,
+    5058,
+    5690
+  ],
+  "cpuUpdateMs": 2.82,
+  "trafficMs": 0.68,
+  "crowdMs": 0.36,
+  "renderSubmitMs": 663.9,
+  "cars": 75,
+  "carsOnScreen": 43,
+  "peds": 147,
+  "pedsDrawn": 52,
+  "drawCalls": 615,
+  "triangles": 3178740
+}

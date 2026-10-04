@@ -1,26 +1,40 @@
 /**
- * A drivable car: VehicleSim physics + procedural sedan visuals, wheel animation and
- * emissive head/brake/reverse lamps. Real spotlights come from the shared HeadlightRig,
- * which attaches to whichever car is being driven (keeps the scene light count constant).
+ * A drivable vehicle: VehicleSim physics + full-detail procedural visuals (any VehicleKind),
+ * wheel animation and emissive head/brake/reverse/indicator lamps. Real spotlights come from
+ * the shared HeadlightRig, which attaches to whichever vehicle is being driven (keeps the
+ * scene light count constant).
  */
 import * as THREE from 'three';
-import { buildSedan, type SedanParts } from './SedanModel';
-import { CAR_DIMS, CHASSIS_Y, TUNING, VehicleSim, type DriveInput } from './VehicleSim';
+import { buildVehicle, SPECS, type VehicleParts, type VehicleSpec } from './VehicleModels';
+import { TUNING, VehicleSim, type DriveInput } from './VehicleSim';
 
 export type { DriveInput };
 
 export class Vehicle {
-  readonly parts: SedanParts;
+  readonly parts: VehicleParts;
   readonly sim: VehicleSim;
   readonly name: string;
+  readonly spec: VehicleSpec;
+  readonly color: THREE.Color;
   lightsOn = true;
+  /** Hazard / indicator state (-1 left, 1 right, 2 hazards, 0 off). */
+  indicator = 0;
+  /** Set when this vehicle came from traffic (so it can be recycled later). */
+  fromTraffic = false;
   private wheelSpin = [0, 0, 0, 0];
-  constructor(name: string, color: THREE.Color, x: number, y: number, z: number, yaw: number) {
+  constructor(name: string, color: THREE.Color, x: number, y: number, z: number, yaw: number, spec: VehicleSpec = SPECS.sedan) {
     this.name = name;
-    this.sim = new VehicleSim(x, y, z, yaw);
-    this.parts = buildSedan(color);
+    this.spec = spec;
+    this.color = color.clone();
+    this.sim = new VehicleSim(x, y, z, yaw, spec);
+    this.parts = buildVehicle(spec, color);
     this.parts.root.name = name;
     this.update(0, 1);
+  }
+
+  /** Display name, e.g. "Corvane Strata". */
+  get label(): string {
+    return `${this.spec.make} ${this.spec.model}`;
   }
 
 
@@ -42,7 +56,7 @@ export class Vehicle {
 
   /** World position of the driver door (for enter/exit). */
   doorPosition(out = new THREE.Vector3()): THREE.Vector3 {
-    return out.set(CAR_DIMS.width / 2 + 0.75, 0, 0.2).applyQuaternion(this.parts.root.quaternion).add(this.parts.root.position);
+    return out.set(this.spec.width / 2 + 0.75, 0, this.parts.seat.position.z).applyQuaternion(this.parts.root.quaternion).add(this.parts.root.position);
   }
 
   fixedUpdate(dt: number, input: DriveInput | null): void {
@@ -58,13 +72,13 @@ export class Vehicle {
     const root = this.parts.root;
     root.position.lerpVectors(s.prevPos, s.curPos, alpha);
     root.quaternion.slerpQuaternions(s.prevRot, s.curRot, alpha);
-    root.position.add(new THREE.Vector3(0, -CHASSIS_Y, 0).applyQuaternion(root.quaternion));
+    root.position.add(new THREE.Vector3(0, -s.chassisY, 0).applyQuaternion(root.quaternion));
     const c = s.controller;
     for (let i = 0; i < 4; i++) {
       const w = this.parts.wheels[i];
       const susp = c.wheelSuspensionLength(i) ?? TUNING.suspensionRest;
       const hp = c.wheelChassisConnectionPointCs(i);
-      if (hp) w.position.set(hp.x, hp.y + CHASSIS_Y - susp, hp.z);
+      if (hp) w.position.set(hp.x, hp.y + s.chassisY - susp, hp.z);
       w.rotation.set(0, c.wheelSteering(i) ?? 0, 0);
       const spin = w.getObjectByName('spin');
       this.wheelSpin[i] = c.wheelRotation(i) ?? this.wheelSpin[i];
@@ -74,6 +88,8 @@ export class Vehicle {
     this.parts.headMat.emissiveIntensity = this.lightsOn ? 2.2 : 0.2;
     this.parts.brakeMat.emissiveIntensity = s.braking ? 6 : this.lightsOn && occupied ? 1.2 : 0.35;
     this.parts.reverseMat.emissiveIntensity = s.reversing && occupied ? 3 : 0;
+    const blink = Math.floor(performance.now() / 380) % 2 === 0;
+    this.parts.indicatorMat.emissiveIntensity = this.indicator !== 0 && blink ? 4 : 0;
     void dt;
   }
 }
@@ -86,8 +102,8 @@ export class HeadlightRig {
   constructor(scene: THREE.Scene) {
     for (const s of [-1, 1]) {
       const spot = new THREE.SpotLight(0xfff2dc, 0, 70, 0.42, 0.45, 1.4);
-      spot.position.set(s * 0.7, 0.7, CAR_DIMS.length / 2 - 0.05);
-      spot.target.position.set(s * 0.9, 0.0, CAR_DIMS.length / 2 + 18);
+      spot.position.set(s * 0.7, 0.7, 2.3);
+      spot.target.position.set(s * 0.9, 0.0, 2.3 + 18);
       spot.castShadow = false;
       scene.add(spot, spot.target);
       this.spots.push(spot);
@@ -96,7 +112,14 @@ export class HeadlightRig {
 
   update(v: Vehicle | null): void {
     if (v && v !== this.attached) {
-      for (const s of this.spots) v.object.add(s, s.target);
+      const L = v.spec.length / 2;
+      const y = v.spec.nose - 0.05;
+      this.spots.forEach((s, i) => {
+        const sx = i === 0 ? -1 : 1;
+        s.position.set(sx * (v.spec.width / 2 - 0.25), y, L - 0.05);
+        s.target.position.set(sx * 0.9, 0, L + 18);
+        v.object.add(s, s.target);
+      });
       this.attached = v;
     }
     const on = !!v && v.lightsOn;

@@ -31,6 +31,13 @@ export interface QualitySettings {
   interiorMapping: boolean;
   /** Max chunk detail builds per frame. */
   buildBudgetMs: number;
+  /** Real point lights assigned to the nearest street lamps at night. */
+  streetLights: number;
+  /** Max rain drops (GPU particles) in heavy rain. */
+  rainDrops: number;
+  /** Max simulated traffic cars / pedestrians around the player. */
+  traffic: number;
+  pedestrians: number;
 }
 
 export const PRESETS: Record<GraphicsPreset, QualitySettings> = {
@@ -51,6 +58,10 @@ export const PRESETS: Record<GraphicsPreset, QualitySettings> = {
     anisotropy: 2,
     interiorMapping: false,
     buildBudgetMs: 4,
+    streetLights: 2,
+    rainDrops: 5000,
+    traffic: 40,
+    pedestrians: 70,
   },
   medium: {
     renderScale: 1,
@@ -69,6 +80,10 @@ export const PRESETS: Record<GraphicsPreset, QualitySettings> = {
     anisotropy: 4,
     interiorMapping: true,
     buildBudgetMs: 6,
+    streetLights: 4,
+    rainDrops: 9000,
+    traffic: 60,
+    pedestrians: 110,
   },
   high: {
     renderScale: 1,
@@ -87,6 +102,10 @@ export const PRESETS: Record<GraphicsPreset, QualitySettings> = {
     anisotropy: 8,
     interiorMapping: true,
     buildBudgetMs: 8,
+    streetLights: 8,
+    rainDrops: 15000,
+    traffic: 80,
+    pedestrians: 170,
   },
   ultra: {
     renderScale: 1,
@@ -105,6 +124,10 @@ export const PRESETS: Record<GraphicsPreset, QualitySettings> = {
     anisotropy: 16,
     interiorMapping: true,
     buildBudgetMs: 10,
+    streetLights: 12,
+    rainDrops: 22000,
+    traffic: 100,
+    pedestrians: 220,
   },
 };
 

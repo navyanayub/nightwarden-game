@@ -7,7 +7,9 @@
  */
 import * as THREE from 'three';
 import { physics, RAPIER, GROUPS_VEHICLE, GROUPS_WHEEL_RAY } from '../core/Physics';
+import { SPECS, type VehicleSpec } from './VehicleModels';
 
+/** Default (sedan) dimensions, kept for tools. */
 export const CAR_DIMS = { width: 1.86, length: 4.72, track: 1.6, frontAxle: 1.38, rearAxle: -1.44, wheelRadius: 0.34 };
 
 export interface DriveInput {
@@ -44,8 +46,15 @@ export const TUNING = {
   esc: 12000,
 };
 
-/** Height of the chassis rigid-body origin above the ground at rest. */
+/** Height of the chassis rigid-body origin above the ground at rest (sedan). */
 export const CHASSIS_Y = 0.75;
+
+/** Chassis origin height for a vehicle spec. */
+export function chassisY(spec: VehicleSpec): number {
+  return spec.wheelRadius + TUNING.suspensionRest + 0.11;
+}
+
+type Tuning = typeof TUNING;
 
 export class VehicleSim {
   readonly chassis: RAPIER.RigidBody;
@@ -59,51 +68,87 @@ export class VehicleSim {
   braking = false;
   reversing = false;
   speed = 0;
+  /** Sideways speed (m/s), for tyre skid audio. */
+  lateral = 0;
   rpm = 0;
   gear = 1;
+  readonly spec: VehicleSpec;
+  readonly tune: Tuning;
+  readonly chassisY: number;
+  private dims: { width: number; length: number; track: number; frontAxle: number; rearAxle: number; wheelRadius: number };
 
-  constructor(x: number, y: number, z: number, yaw: number) {
+  constructor(x: number, y: number, z: number, yaw: number, spec: VehicleSpec = SPECS.sedan) {
+    this.spec = spec;
+    const heavy = spec.mass / TUNING.mass;
+    this.tune = {
+      ...TUNING,
+      mass: spec.mass,
+      engineForce: spec.engineForce,
+      topSpeed: spec.topSpeed,
+      brakeForce: TUNING.brakeForce * Math.max(1, heavy * 0.9),
+      stiffness: TUNING.stiffness * (spec.kind === 'bus' ? 2.2 : heavy > 1.3 ? 1.35 : 1),
+      comY: spec.kind === 'suv' || spec.kind === 'van' || spec.kind === 'pickup' ? -0.15 : TUNING.comY,
+      esc: TUNING.esc * heavy,
+      downforce: TUNING.downforce * heavy,
+      rolling: TUNING.rolling * heavy,
+    };
+    const T = this.tune;
+    this.dims = spec;
+    this.chassisY = chassisY(spec);
+    const D = this.dims;
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     const desc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, y + CHASSIS_Y, z)
+      .setTranslation(x, y + this.chassisY, z)
       .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
       .setLinearDamping(0.05)
       .setAngularDamping(0.6)
       .setCanSleep(true)
       .setCcdEnabled(true);
     this.chassis = physics.world.createRigidBody(desc);
-    const body = RAPIER.ColliderDesc.cuboid(CAR_DIMS.width / 2 - 0.04, 0.3, CAR_DIMS.length / 2 - 0.05)
-      .setTranslation(0, 0.05, 0)
+    // Lower body from just above the sills to the belt line; cabin box on top.
+    const g = -this.chassisY;
+    const lowY0 = g + spec.clearance + 0.12;
+    const lowY1 = g + spec.belt;
+    const body = RAPIER.ColliderDesc.cuboid(D.width / 2 - 0.04, (lowY1 - lowY0) / 2, D.length / 2 - 0.05)
+      .setTranslation(0, (lowY0 + lowY1) / 2, 0)
       .setDensity(1)
       .setFriction(0.4)
       .setRestitution(0.1)
       .setCollisionGroups(GROUPS_VEHICLE);
-    const cabin = RAPIER.ColliderDesc.cuboid(CAR_DIMS.width / 2 - 0.22, 0.24, 1.0).setTranslation(0, 0.55, -0.3).setDensity(0.2).setCollisionGroups(GROUPS_VEHICLE);
+    const cz0 = spec.bed ? spec.rw1 : Math.max(spec.rw1, -D.length / 2 + 0.1);
+    const cz1 = Math.min(spec.ws0, D.length / 2 - 0.1);
+    const cabH = (spec.roof - spec.belt) / 2;
+    const cabin = RAPIER.ColliderDesc.cuboid(D.width / 2 - 0.22, cabH, (cz1 - cz0) / 2 - 0.1)
+      .setTranslation(0, g + spec.belt + cabH, (cz0 + cz1) / 2)
+      .setDensity(0.2)
+      .setCollisionGroups(GROUPS_VEHICLE);
     physics.world.createCollider(body, this.chassis);
     physics.world.createCollider(cabin, this.chassis);
-    this.chassis.setAdditionalMassProperties(TUNING.mass, { x: 0, y: TUNING.comY, z: 0.05 }, { x: 2400, y: 2700, z: 620 }, { x: 0, y: 0, z: 0, w: 1 }, true);
+    const ik = T.mass / TUNING.mass;
+    const lk = (D.length / CAR_DIMS.length) ** 2;
+    this.chassis.setAdditionalMassProperties(T.mass, { x: 0, y: T.comY, z: 0.05 }, { x: 2400 * ik * lk, y: 2700 * ik * lk, z: 620 * ik }, { x: 0, y: 0, z: 0, w: 1 }, true);
     this.controller = physics.world.createVehicleController(this.chassis);
     this.controller.indexUpAxis = 1;
     this.controller.setIndexForwardAxis = 2;
-    const hy = CAR_DIMS.wheelRadius - CHASSIS_Y + TUNING.suspensionRest - 0.04;
+    const hy = D.wheelRadius - this.chassisY + T.suspensionRest - 0.04;
     for (const [wx, wz] of [
-      [CAR_DIMS.track / 2, CAR_DIMS.frontAxle],
-      [-CAR_DIMS.track / 2, CAR_DIMS.frontAxle],
-      [CAR_DIMS.track / 2, CAR_DIMS.rearAxle],
-      [-CAR_DIMS.track / 2, CAR_DIMS.rearAxle],
+      [D.track / 2, D.frontAxle],
+      [-D.track / 2, D.frontAxle],
+      [D.track / 2, D.rearAxle],
+      [-D.track / 2, D.rearAxle],
     ]) {
-      this.controller.addWheel({ x: wx, y: hy, z: wz }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, TUNING.suspensionRest, CAR_DIMS.wheelRadius);
+      this.controller.addWheel({ x: wx, y: hy, z: wz }, { x: 0, y: -1, z: 0 }, { x: -1, y: 0, z: 0 }, T.suspensionRest, D.wheelRadius);
     }
     for (let i = 0; i < 4; i++) {
-      this.controller.setWheelSuspensionStiffness(i, TUNING.stiffness);
-      this.controller.setWheelSuspensionCompression(i, TUNING.compression);
-      this.controller.setWheelSuspensionRelaxation(i, TUNING.relaxation);
-      this.controller.setWheelMaxSuspensionTravel(i, TUNING.suspensionTravel);
-      this.controller.setWheelMaxSuspensionForce(i, 60000);
-      this.controller.setWheelFrictionSlip(i, i < 2 ? TUNING.frictionFront : TUNING.frictionRear);
-      this.controller.setWheelSideFrictionStiffness(i, TUNING.sideStiffness);
+      this.controller.setWheelSuspensionStiffness(i, T.stiffness);
+      this.controller.setWheelSuspensionCompression(i, T.compression);
+      this.controller.setWheelSuspensionRelaxation(i, T.relaxation);
+      this.controller.setWheelMaxSuspensionTravel(i, T.suspensionTravel);
+      this.controller.setWheelMaxSuspensionForce(i, 60000 * Math.max(1, ik));
+      this.controller.setWheelFrictionSlip(i, i < 2 ? T.frictionFront : T.frictionRear);
+      this.controller.setWheelSideFrictionStiffness(i, T.sideStiffness);
     }
-    this.curPos.set(x, y + CHASSIS_Y, z);
+    this.curPos.set(x, y + this.chassisY, z);
     this.prevPos.copy(this.curPos);
     this.curRot.copy(q);
     this.prevRot.copy(q);
@@ -127,9 +172,9 @@ export class VehicleSim {
     const inp: DriveInput = input ?? { throttle: 0, brake: 0, steer: 0, handbrake: !this.occupied };
     // Steering: speed-sensitive max angle, rate limited.
     const sp = Math.abs(fSpeed);
-    const maxSteer = THREE.MathUtils.lerp(TUNING.maxSteer, TUNING.highSpeedSteer, Math.min(1, sp / 38));
+    const maxSteer = THREE.MathUtils.lerp(this.tune.maxSteer, this.tune.highSpeedSteer, Math.min(1, sp / 38));
     const targetSteer = -inp.steer * maxSteer;
-    this.steer += THREE.MathUtils.clamp(targetSteer - this.steer, -TUNING.steerSpeed * dt, TUNING.steerSpeed * dt);
+    this.steer += THREE.MathUtils.clamp(targetSteer - this.steer, -this.tune.steerSpeed * dt, this.tune.steerSpeed * dt);
     c.setWheelSteering(0, this.steer);
     c.setWheelSteering(1, this.steer);
     let engine = 0;
@@ -138,20 +183,21 @@ export class VehicleSim {
     // Traction control: cut drive when the car is sliding sideways (unless drifting on purpose).
     const side = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
     const slip = Math.abs(Math.atan2(v.dot(side), Math.max(Math.abs(fSpeed), 0.5)));
+    this.lateral = Math.abs(v.dot(side));
     const tc = inp.handbrake ? 1 : THREE.MathUtils.clamp(1 - (slip - 0.12) * 2.5, 0.25, 1);
     if (inp.throttle > 0.05) {
-      if (fSpeed < -0.8) brake = TUNING.brakeForce * inp.throttle;
-      else engine = TUNING.engineForce * inp.throttle * this.torqueCurve(fSpeed) * tc;
+      if (fSpeed < -0.8) brake = this.tune.brakeForce * inp.throttle;
+      else engine = this.tune.engineForce * inp.throttle * this.torqueCurve(fSpeed) * tc;
     }
     if (inp.brake > 0.05) {
-      if (fSpeed > 0.8) brake = Math.max(brake, TUNING.brakeForce * inp.brake);
+      if (fSpeed > 0.8) brake = Math.max(brake, this.tune.brakeForce * inp.brake);
       else {
-        engine = -TUNING.engineForce * 0.55 * inp.brake * (fSpeed > -TUNING.reverseSpeed ? 1 : 0);
+        engine = -this.tune.engineForce * 0.55 * inp.brake * (fSpeed > -this.tune.reverseSpeed ? 1 : 0);
         this.reversing = true;
       }
     }
-    if (!this.occupied && inp.throttle === 0 && inp.brake === 0) brake = TUNING.brakeForce * 0.2;
-    if (Math.abs(fSpeed) > TUNING.topSpeed) engine = 0;
+    if (!this.occupied && inp.throttle === 0 && inp.brake === 0) brake = this.tune.brakeForce * 0.2;
+    if (Math.abs(fSpeed) > this.tune.topSpeed) engine = 0;
     this.braking = brake > 1 && fSpeed > 0.5;
     c.setWheelEngineForce(0, 0);
     c.setWheelEngineForce(1, 0);
@@ -160,13 +206,13 @@ export class VehicleSim {
     for (let i = 0; i < 4; i++) c.setWheelBrake(i, brake * (i < 2 ? 0.6 : 0.4));
     const hb = inp.handbrake;
     for (const i of [2, 3]) {
-      c.setWheelFrictionSlip(i, hb ? TUNING.handbrakeFriction : TUNING.frictionRear);
-      if (hb) c.setWheelBrake(i, TUNING.handbrakeForce);
+      c.setWheelFrictionSlip(i, hb ? this.tune.handbrakeFriction : this.tune.frictionRear);
+      if (hb) c.setWheelBrake(i, this.tune.handbrakeForce);
     }
     // Drag, rolling resistance and downforce.
-    const drag = v.clone().multiplyScalar(-TUNING.drag * v.length());
-    const roll = fwd.clone().multiplyScalar(-Math.sign(fSpeed) * Math.min(Math.abs(fSpeed), 1) * TUNING.rolling * (this.occupied ? 1 : 3));
-    const down = new THREE.Vector3(0, -1, 0).applyQuaternion(q).multiplyScalar(TUNING.downforce * v.lengthSq());
+    const drag = v.clone().multiplyScalar(-this.tune.drag * v.length());
+    const roll = fwd.clone().multiplyScalar(-Math.sign(fSpeed) * Math.min(Math.abs(fSpeed), 1) * this.tune.rolling * (this.occupied ? 1 : 3));
+    const down = new THREE.Vector3(0, -1, 0).applyQuaternion(q).multiplyScalar(this.tune.downforce * v.lengthSq());
     const f = drag.add(roll).add(down).multiplyScalar(dt);
     this.chassis.applyImpulse({ x: f.x, y: f.y, z: f.z }, true);
     // Stability assist (arcade ESC): damp yaw towards the bicycle-model rate unless the
@@ -175,9 +221,9 @@ export class VehicleSim {
       const av = this.chassis.angvel();
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
       const yawRate = av.x * up.x + av.y * up.y + av.z * up.z;
-      const wantRate = (fSpeed * Math.tan(this.steer)) / (CAR_DIMS.frontAxle - CAR_DIMS.rearAxle);
+      const wantRate = (fSpeed * Math.tan(this.steer)) / (this.dims.frontAxle - this.dims.rearAxle);
       const err = THREE.MathUtils.clamp(wantRate - yawRate, -2.5, 2.5);
-      const k = TUNING.esc * Math.min(1, sp / 12) * dt;
+      const k = this.tune.esc * Math.min(1, sp / 12) * dt;
       this.chassis.applyTorqueImpulse({ x: up.x * err * k, y: up.y * err * k, z: up.z * err * k }, true);
     }
     const handle = this.chassis.handle;
@@ -191,7 +237,7 @@ export class VehicleSim {
 
   /** Wheel engine force multiplier vs speed (more pull at low speed, fading near top speed). */
   private torqueCurve(v: number): number {
-    const t = Math.max(0, v) / TUNING.topSpeed;
+    const t = Math.max(0, v) / this.tune.topSpeed;
     return Math.max(0, 1.1 - 0.35 * t - 0.75 * t * t);
   }
 
