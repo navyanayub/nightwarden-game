@@ -38,6 +38,8 @@ interface KindMeshes {
   wheels: THREE.InstancedMesh;
   lampAttr: THREE.InstancedBufferAttribute;
   count: number;
+  /** Near-only parts (glass, trim, wheels) have their own instance counter (far LOD skips them). */
+  nearCount: number;
   wheelPos: [number, number, number][];
   radius: number;
 }
@@ -208,7 +210,7 @@ export class TrafficRender {
       [spec.track / 2, spec.wheelRadius, spec.rearAxle],
       [-spec.track / 2, spec.wheelRadius, spec.rearAxle],
     ];
-    return { paint, glass, trim, lamps, wheels, lampAttr, count: 0, wheelPos, radius: spec.wheelRadius };
+    return { paint, glass, trim, lamps, wheels, lampAttr, count: 0, nearCount: 0, wheelPos, radius: spec.wheelRadius };
   }
 
   /** Triangles per car (paint + glass + trim + lamps + 4 wheels), for budgeting. */
@@ -220,7 +222,10 @@ export class TrafficRender {
 
   /** Upload all visible cars for this frame. */
   update(cars: CarRenderState[], night: number, cam: THREE.Vector3): void {
-    for (const k of this.kinds) k.count = 0;
+    for (const k of this.kinds) {
+      k.count = 0;
+      k.nearCount = 0;
+    }
     let beams = 0;
     const beamArr = this.beamAttr.array as Float32Array;
     const wm = new THREE.Matrix4();
@@ -238,13 +243,17 @@ export class TrafficRender {
       this.v.set(c.x, c.y, c.z);
       this.m.compose(this.v, this.q, this.one);
       K.paint.setMatrixAt(i, this.m);
-      K.glass.setMatrixAt(i, this.m);
-      K.trim.setMatrixAt(i, this.m);
       K.lamps.setMatrixAt(i, this.m);
       K.paint.instanceColor!.setXYZ(i, c.color.r, c.color.g, c.color.b);
       K.lampAttr.setXYZW(i, c.head, c.brake, c.indL, c.indR);
+      // Far LOD: paint + lamps only (glass/trim/wheels are invisible at that size).
+      const d2 = (c.x - cam.x) ** 2 + (c.z - cam.z) ** 2;
+      if (d2 > 160 * 160) continue;
+      const j = K.nearCount++;
+      K.glass.setMatrixAt(j, this.m);
+      K.trim.setMatrixAt(j, this.m);
       // Wheels (skip spin/steer detail far away).
-      const near = (c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < 140 * 140;
+      const near = d2 < 140 * 140;
       for (let w = 0; w < 4; w++) {
         const [lx, ly, lz] = K.wheelPos[w];
         we.set(near ? c.wheelSpin : 0, (w < 2 ? c.steer : 0) + (lx < 0 ? Math.PI : 0), 0, 'YXZ');
@@ -252,7 +261,7 @@ export class TrafficRender {
         wq.setFromEuler(we);
         wm.compose(wp.set(lx, ly, lz), wq, this.one);
         wm.premultiply(this.m);
-        K.wheels.setMatrixAt(i * 4 + w, wm);
+        K.wheels.setMatrixAt(j * 4 + w, wm);
       }
       if (night > 0.05 && c.head > 0.5 && beams < this.capacity * 2) {
         const sx = Math.sin(c.yaw);
@@ -263,11 +272,15 @@ export class TrafficRender {
       }
     }
     for (const K of this.kinds) {
-      for (const im of [K.paint, K.glass, K.trim, K.lamps]) {
+      for (const im of [K.paint, K.lamps]) {
         im.count = K.count;
         im.instanceMatrix.needsUpdate = true;
       }
-      K.wheels.count = K.count * 4;
+      for (const im of [K.glass, K.trim]) {
+        im.count = K.nearCount;
+        im.instanceMatrix.needsUpdate = true;
+      }
+      K.wheels.count = K.nearCount * 4;
       K.wheels.instanceMatrix.needsUpdate = true;
       K.paint.instanceColor!.needsUpdate = true;
       K.lampAttr.needsUpdate = true;

@@ -15,7 +15,7 @@ import { chromium } from 'playwright';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const args = process.argv.slice(2);
 const SHOTS = args.includes('--screenshots');
-const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7);
+const ONLY_LIST = args.find((a) => a.startsWith('--only='))?.slice(7).split(',');
 const PRESET = args.find((a) => a.startsWith('--preset='))?.slice(9) ?? 'high';
 const EXTRA = args.find((a) => a.startsWith('--query='))?.slice(8) ?? '';
 const W = Number(args.find((a) => a.startsWith('--width='))?.slice(8) ?? 1280);
@@ -204,7 +204,7 @@ async function main() {
     };
   });
   console.log('PERF', JSON.stringify(perf));
-  fs.writeFileSync(path.join(ROOT, 'screenshots', 'perf-high.json'), JSON.stringify(perf, null, 2));
+  fs.writeFileSync(path.join(ROOT, 'screenshots', 'perf-e2e.json'), JSON.stringify(perf, null, 2));
 
   if (SHOTS) {
     const dir = path.join(ROOT, 'screenshots');
@@ -214,7 +214,7 @@ async function main() {
       await page.waitForTimeout(ms);
     };
     const shot = async (name, fn, ms) => {
-      if (ONLY && !name.includes(ONLY)) return;
+      if (ONLY_LIST && !ONLY_LIST.some((o) => name.includes(o))) return;
       await page.evaluate(fn);
       await settle(ms);
       await page.screenshot({ path: path.join(dir, `${name}${SUFFIX}.png`) });
@@ -313,7 +313,7 @@ async function main() {
       g.setWeather('clear');
       g.setTime(6.4);
       g.env.forceFogBank(1);
-      g.setDebugCamera(520, 26, 600, 260, 4, 900);
+      g.setDebugCamera(155, 8, 728, 330, 4, 1060);
     }, 9000);
     await shot('20-storm-lightning', () => {
       const g = window.__NW.game;
@@ -322,7 +322,7 @@ async function main() {
       g.setDebugCamera(640, 26, 520, 120, 70, -60);
       g.lightning(true);
     }, 6000);
-    await page.evaluate(() => window.__NW.game.lightning(false));
+    await page.evaluate(() => window.__NW.game.releaseLightning());
     await shot('21-vehicle-lineup', () => {
       const g = window.__NW.game;
       g.setWeather('clear');
@@ -358,7 +358,7 @@ async function main() {
       g.setTime(12);
       g.clearDebugCamera();
     });
-    if (!ONLY || 'ui'.includes(ONLY) || ONLY.startsWith('ui')) {
+    if (!ONLY_LIST || ONLY_LIST.some((o) => o.startsWith('ui'))) {
       // UI flow on a fresh, non-automated page: loading screen, click to play, H, Esc, F3.
       await page.close();
       const ui = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
@@ -386,12 +386,16 @@ async function main() {
       await ui.keyboard.press('F3');
       await ui.waitForTimeout(2500);
       await ui.screenshot({ path: path.join(dir, 'ui-04-stats.png') });
+      const resumed = await ui.evaluate(() => !window.__NW.game.loop.paused);
+      // Full-screen map (M) opens and pauses the simulation; M again closes it (frames are slow
+      // under SwiftShader, so wait for the game to process each key).
       await ui.keyboard.press('KeyM');
+      const mapOpened = await ui.waitForFunction(() => window.__NW.game.minimap.open, null, { timeout: 120000, polling: 500 }).then(() => true, () => false);
       await ui.waitForTimeout(2500);
       await ui.screenshot({ path: path.join(dir, 'ui-05-map.png') });
       await ui.keyboard.press('KeyM');
-      await ui.waitForTimeout(1000);
-      const resumed = await ui.evaluate(() => !window.__NW.game.loop.paused);
+      const mapClosed = await ui.waitForFunction(() => !window.__NW.game.minimap.open && !window.__NW.game.loop.paused, null, { timeout: 120000, polling: 500 }).then(() => true, () => false);
+      if (!mapOpened || !mapClosed) errors.push(`map toggle failed ${JSON.stringify({ mapOpened, mapClosed })}`);
       console.log('ui flow', { paused, preset, resumed });
       if (!paused || preset !== 'medium' || !resumed) errors.push(`ui flow failed ${JSON.stringify({ paused, preset, resumed })}`);
       await ui.evaluate(() => localStorage.removeItem('nightwarden.settings.v1'));

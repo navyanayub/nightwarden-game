@@ -445,9 +445,16 @@ export class Game {
     this.ui.toast('Bang! (debug gunshot)');
   }
 
+  /** Release a held lightning flash (tests/tools). */
+  releaseLightning(): void {
+    weather.holdFlash = null;
+  }
+
   /** Trigger a lightning strike near the camera (tests/tools); `hold` keeps it lit for screenshots. */
   lightning(hold = false): void {
-    weather.strike(this.renderer.camera.position.x, this.renderer.camera.position.z);
+    const f = new THREE.Vector3();
+    this.renderer.camera.getWorldDirection(f);
+    weather.strike(this.renderer.camera.position.x, this.renderer.camera.position.z, hold ? { x: f.x, z: f.z } : undefined);
     weather.holdFlash = hold ? 1.6 : null;
   }
 

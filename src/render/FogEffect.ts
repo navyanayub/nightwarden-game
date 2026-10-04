@@ -19,31 +19,32 @@ uniform float uMaxOpacity;
 uniform vec3 uSunTint;
 uniform float uExposure;
 uniform float uBank;
-uniform vec4 uBankArea;
 uniform vec2 uBankDrift;
 ${SKY_GLSL}
 
+// Harbour fog bank footprint (centre, radii) over the harbour waters.
+const vec2 BANK_CENTER = vec2(380.0, 980.0);
+const vec2 BANK_RADII = vec2(900.0, 520.0);
 float fbH(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float fbN(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(fbH(i), fbH(i + vec2(1.0, 0.0)), u.x), mix(fbH(i + vec2(0.0, 1.0)), fbH(i + vec2(1.0, 1.0)), u.x), u.y);
 }
 /** Optical depth of the low harbour fog bank along the ray (short raymarch through 2D noise). */
-float fogBank(vec3 ro, vec3 rd, float dist) {
+float bankDepth(vec3 ro, vec3 rd, float dist) {
   float len = min(dist, 1600.0);
   float stepL = len / 10.0;
   float od = 0.0;
-  float j = fbH(gl_FragCoord.xy) * stepL;
   for (int i = 0; i < 10; i++) {
-    vec3 p = ro + rd * (j + stepL * float(i));
-    vec2 q = (p.xz - uBankArea.xy) / uBankArea.zw;
+    vec3 p = ro + rd * (stepL * (float(i) + 0.5));
+    vec2 q = (p.xz - BANK_CENTER) / BANK_RADII;
     float area = 1.0 - smoothstep(0.55, 1.0, length(q));
-    float h = exp(-max(p.y - 1.0, 0.0) / 20.0);
+    float hgt = exp(-max(p.y - 1.0, 0.0) / 24.0);
     vec2 np = p.xz * 0.006 + uBankDrift;
-    float n = fbN(np) * 0.6 + fbN(np * 2.3 + 4.1) * 0.4;
-    od += area * h * smoothstep(0.22, 0.7, n) * stepL;
+    float nz = fbN(np) * 0.6 + fbN(np * 2.3 + 4.1) * 0.4;
+    od += area * hgt * smoothstep(0.22, 0.7, nz);
   }
-  return od * 0.016 * uBank;
+  return od * stepL * 0.022 * uBank;
 }
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
@@ -78,8 +79,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   fogCol += uSunTint * sunAmt * 0.25 * (1.0 - uOvercast);
   vec3 col = mix(inputColor.rgb, fogCol, fogAmt);
   if (uBank > 0.01) {
-    float bank = 1.0 - exp(-fogBank(uCamPos, rd, dist));
-    col = mix(col, fogCol * 1.08 + vec3(0.01), clamp(bank, 0.0, 0.97));
+    float bankAmt = 1.0 - exp(-bankDepth(uCamPos, rd, dist));
+    col = mix(col, fogCol * 1.08 + vec3(0.01), clamp(bankAmt, 0.0, 0.97));
   }
   outputColor = vec4(col * uExposure, inputColor.a);
   #ifdef FOG_DEBUG
@@ -116,7 +117,6 @@ export class FogEffect extends Effect {
         ['uCityGlow', new THREE.Uniform(new THREE.Color(0, 0, 0))],
         ['uFlash', new THREE.Uniform(0)],
         ['uBank', new THREE.Uniform(0)],
-        ['uBankArea', new THREE.Uniform(new THREE.Vector4(380, 980, 900, 520))],
         ['uBankDrift', new THREE.Uniform(new THREE.Vector2())],
       ]),
     });

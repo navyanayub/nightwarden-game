@@ -79,6 +79,7 @@ tests/
   e2e.mjs                  headless load + console-error check + functional checks + perf log
                            + screenshots
   shots.mjs                one-off screenshot: node tests/shots.mjs out.png "query" "cam" ms "js"
+  perf.mjs                 performance log (perf-high.json)
   debug-eval.mjs           evaluate an expression in the running game (debug helper)
 tools/
   fetch_assets.py          download raw CC0 assets into .cache/raw (gitignored)
@@ -214,8 +215,12 @@ tools/
 
 - Draw calls ≤ ~650 on High (Stage 1 city ~380–570 + traffic ~45 + crowd ~25 + lights/FX
   ~10), triangles ≤ ~3.5 M (crowd LODs: ~8.5k / 2.5k / 0.8k tris per person).
-- AI CPU (measured headless): traffic ≈ 0.2 ms per 0.05 s step for ~80 cars; crowd sim +
-  instance upload ≈ 1–2 ms for ~170 people. 8 real street lights on High (2/4/8/12 by preset).
+- Measured (`npm run perf`, High, busy Midtown, 94 cars / 71 in view, 175 people / 129
+  drawn): whole `update` ≈ 2.3–3.6 ms CPU per frame, of which traffic ≈ 0.6–0.9 ms and crowd
+  ≈ 0.4–0.7 ms; 560–665 draw calls; 3.2–3.8 M triangles (dense overhead views slightly exceed
+  the 3.5 M target — crowd LOD distances / traffic far-LOD are the levers). Traffic instances
+  ≈ 4.5–5.7k tris per car near, paint + lamps only beyond 160 m. 8 real street lights on High
+  (2/4/8/12 by preset). Real GPU FPS has not been measured yet (headless = SwiftShader).
 - Counts per preset (`traffic` / `pedestrians`): Low 40/70, Medium 60/110, High 80/170,
   Ultra 100/220 (scaled by hour, district and rain).
 - Shadow map: one 4096² cascade (High), 100 m radius; Ultra 150 m.
@@ -252,9 +257,11 @@ npm run screenshots              # + screenshots in /screenshots (street, skylin
                                  #   driving, clock tower, bridge, park, hills, airfield, busy
                                  #   intersection, night skyline, rainy night street, sunset
                                  #   harbour, dawn fog, storm, vehicle line-up, crowd, umbrellas,
-                                 #   UI incl. map) and screenshots/perf-high.json
+                                 #   UI incl. map) and screenshots/perf-e2e.json
 node tests/e2e.mjs --screenshots --only=03 --preset=ultra --query=nofog   # options
 W=960 H=540 node tests/shots.mjs /tmp/x.png "time=22&weather=heavyrain" "" 15000 "1"
+npm run perf                     # High preset, 60+ cars / 150+ people in view ->
+                                 #   screenshots/perf-high.json (+ --headed on a GPU machine)
 ```
 - Headless uses SwiftShader (very slow: a frame takes seconds with Stage 2 lighting, so the
   full screenshot run takes over an hour). Functional checks step the simulation directly via

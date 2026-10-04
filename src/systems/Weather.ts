@@ -181,10 +181,10 @@ export class Weather {
   }
 
   /** Trigger a lightning strike somewhere around the camera (also used by tests). */
-  strike(camX: number, camZ: number): void {
+  strike(camX: number, camZ: number, towards?: { x: number; z: number }): void {
     const s = Math.floor(this.t * 1000);
-    const ang = hashFloat(s, 1) * Math.PI * 2;
-    const dist = 500 + hashFloat(s, 2) * 2600;
+    const ang = towards ? Math.atan2(towards.z, towards.x) + (hashFloat(s, 1) - 0.5) * 0.5 : hashFloat(s, 1) * Math.PI * 2;
+    const dist = towards ? 900 + hashFloat(s, 2) * 500 : 500 + hashFloat(s, 2) * 2600;
     const x = camX + Math.cos(ang) * dist;
     const z = camZ + Math.sin(ang) * dist;
     const amp = 1.4 + hashFloat(s, 3) * 1.6 * (1 - dist / 4000);

@@ -2,7 +2,7 @@
   "name": "nightwarden-game",
   "private": true,
   "version": "0.1.0",
-  "description": "NIGHTWARDEN — an original open-world action game set in Port Vellmoor, running in the browser.",
+  "description": "NIGHTWARDEN \u2014 an original open-world action game set in Port Vellmoor, running in the browser.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node tests/e2e.mjs",
-    "screenshots": "node tests/e2e.mjs --screenshots"
+    "screenshots": "node tests/e2e.mjs --screenshots",
+    "perf": "node tests/perf.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -108,7 +108,8 @@ npm run build      # type-check + static build into /docs
 npm run preview    # serve /docs at http://localhost:4173/nightwarden-game/
 npm run test:e2e   # headless Chromium: loads the game, fails on console errors, checks walking,
                    # driving, traffic, hijacking, crowds, time of day and weather
-npm run screenshots   # + screenshots/ and screenshots/perf-high.json
+npm run screenshots   # + screenshots/
+npm run perf          # performance log -> screenshots/perf-high.json (use --headed on a GPU machine)
 ```
 
 See **CLAUDE.md** for architecture, conventions, budgets and the roadmap, and **CREDITS.md**
