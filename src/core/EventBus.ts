@@ -3,6 +3,7 @@
  * Add new events to `GameEvents` so every emit/on call stays type-checked.
  */
 import type { GraphicsPreset } from './Settings';
+import type { District } from '../world/WorldConfig';
 
 export interface GameEvents {
   'loading:progress': { progress: number; label: string };
@@ -22,6 +23,37 @@ export interface GameEvents {
   'world:alarm': { x: number; z: number; radius: number; kind: 'gunshot' | 'crash' | 'pavement' };
   'traffic:horn': { x: number; z: number };
   'player:hijack': { x: number; z: number };
+  // Stage 3: the vigilante.
+  'player:hero': { on: boolean };
+  /** Landing impact (m/s); `dive` = a dive-bomb landing from a glide. */
+  'player:land': { x: number; y: number; z: number; speed: number; dive: boolean };
+  'player:grapple': { x: number; y: number; z: number };
+  'player:hurt': { amount: number; health: number };
+  'player:ko': void;
+  /** A melee impact (for audio): strength 0..1. */
+  'combat:hit': { x: number; y: number; z: number; strength: number; blocked?: boolean };
+  'combat:ko': { x: number; z: number; last: boolean };
+  'combat:gadget': { kind: 'smoke' | 'dart' | 'disarm'; x: number; y: number; z: number };
+  // Stage 4: crime and police.
+  /** An NPC (police or criminal) fired a gun. */
+  'combat:shot': { x: number; y: number; z: number; police: boolean };
+  'territory:change': { gang: 'tidewater' | 'ashline' | 'velvet'; district: District; control: number; delta: number; reason: string };
+  'territory:lost': { gang: 'tidewater' | 'ashline' | 'velvet'; district: District };
+  'crime:start': { id: number; type: string; label: string; x: number; z: number };
+  'crime:end': { id: number; type: string; outcome: 'stopped' | 'police' | 'failed' | 'escaped'; x: number; z: number };
+  /** One line on the police scanner. */
+  'police:scanner': { text: string; priority?: boolean };
+  /** One headline on the news ticker. */
+  'news': { text: string };
+  'wanted:change': { level: number; reason: string };
+  /** The player broke the law (wanted system input). */
+  'player:offense': { kind: 'hitPedestrian' | 'carTheft' | 'attackOfficer' | 'koOfficer' | 'property' | 'resist'; x: number; z: number };
+  'player:respawn': { where: 'hospital' | 'precinct'; fine: number };
+  'player:busted': { x: number; z: number };
+  'police:collect': { x: number; z: number; tied: boolean };
+  'stats:change': { money: number; reputation: number; trust: number; reason: string };
+  'gang:retaliate': { gang: import('../crime/Gangs').GangId; kind: 'ambush' | 'patrol'; x: number; z: number };
+  'police:spikes': { x: number; z: number; player: boolean };
 }
 
 type Handler<T> = (payload: T) => void;

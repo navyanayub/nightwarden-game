@@ -22,6 +22,13 @@ export class CameraRig {
   /** Vehicle heading the chase cam follows (radians, yaw of the car's forward). */
   vehicleYaw = 0;
   vehicleSpeed = 0;
+  /** Glide / zip: recentre behind this heading and widen the FOV with speed. */
+  follow: { yaw: number; speed: number } | null = null;
+  /** Combat framing: midpoint of the fight to keep in view (pulls the camera back). */
+  combat: { center: THREE.Vector3; spread: number } | null = null;
+  private combatW = 0;
+  private shakeAmp = 0;
+  private shakeT = 0;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -73,11 +80,32 @@ export class CameraRig {
       this.fov += (wantFov - this.fov) * (1 - Math.exp(-3 * dt));
     } else {
       this.distance = this.targetDistance;
-      this.fov += (62 - this.fov) * (1 - Math.exp(-3 * dt));
+      let wantFov = 62;
+      if (this.follow) {
+        const idle = this.time - this.lastLook > 0.8;
+        if (idle) {
+          let d = this.follow.yaw + Math.PI - this.yaw;
+          d = Math.atan2(Math.sin(d), Math.cos(d));
+          this.yaw += d * (1 - Math.exp(-2.4 * dt));
+          this.pitch += (-0.22 - this.pitch) * (1 - Math.exp(-1.5 * dt));
+        }
+        const sk = Math.min(1, this.follow.speed / 32);
+        this.distance += 1.2 + sk * 2.2;
+        wantFov += sk * 16;
+      }
+      this.combatW += ((this.combat ? 1 : 0) - this.combatW) * (1 - Math.exp(-2.5 * dt));
+      if (this.combatW > 0.01) this.distance += this.combatW * (1.6 + Math.min(2.5, (this.combat?.spread ?? 0) * 0.25));
+      this.fov += (wantFov - this.fov) * (1 - Math.exp(-3 * dt));
     }
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
+    }
+    // Combat framing: slide the pivot towards the fight's centre.
+    if (this.combat && this.combatW > 0.01) {
+      const c = this.combat.center;
+      this.pivot.x += (THREE.MathUtils.lerp(target.x, c.x, 0.4) - this.pivot.x) * this.combatW * (1 - Math.exp(-4 * dt));
+      this.pivot.z += (THREE.MathUtils.lerp(target.z, c.z, 0.4) - this.pivot.z) * this.combatW * (1 - Math.exp(-4 * dt));
     }
     // Desired camera offset: orbit around pivot with a slight shoulder offset on foot.
     const dir = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
@@ -91,7 +119,19 @@ export class CameraRig {
     this.camera.position.copy(origin).addScaledVector(dir, this.curDist).add(shoulder.multiplyScalar(0.4));
     const lookAt = this.pivot.clone();
     if (this.mode === 'vehicle') lookAt.y += 0.6;
+    // Impact shake.
+    if (this.shakeAmp > 0.001) {
+      this.shakeT += dt * 40;
+      const s = this.shakeAmp;
+      this.camera.position.x += Math.sin(this.shakeT * 1.3) * s;
+      this.camera.position.y += Math.sin(this.shakeT * 1.7 + 1) * s;
+      this.shakeAmp *= Math.exp(-6 * dt);
+    }
     this.camera.lookAt(lookAt.add(this.mode === 'foot' ? new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).multiplyScalar(0.45) : new THREE.Vector3()));
+  }
+
+  shake(amount: number): void {
+    this.shakeAmp = Math.max(this.shakeAmp, amount);
   }
 
   /** Forward vector on the ground plane (camera looks along -dir). */

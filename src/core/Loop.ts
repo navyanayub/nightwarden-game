@@ -26,6 +26,10 @@ export class Loop {
   time = 0;
   /** Rendered frames since start (for real, unclamped FPS measurements). */
   frames = 0;
+  /** Simulation speed (slow motion < 1). Rendering still runs every frame. */
+  timeScale = 1;
+  /** Last real (unscaled, clamped) frame delta. */
+  realDt = 1 / 60;
 
   constructor(private readonly cb: LoopCallbacks) {}
 
@@ -54,8 +58,9 @@ export class Loop {
     dt = Math.min(dt, 0.1);
     this.frameMs = this.frameMs * 0.9 + dt * 1000 * 0.1;
     this.fps = 1000 / this.frameMs;
+    this.realDt = dt;
     if (!this.paused) {
-      this.acc += dt;
+      this.acc += dt * this.timeScale;
       let steps = 0;
       while (this.acc >= FIXED_DT && steps < MAX_STEPS) {
         this.cb.fixedUpdate(FIXED_DT);
@@ -65,7 +70,7 @@ export class Loop {
       }
       if (steps === MAX_STEPS) this.acc = 0;
     }
-    this.cb.update(this.paused ? 0 : dt, this.acc / FIXED_DT);
+    this.cb.update(this.paused ? 0 : dt * this.timeScale, this.acc / FIXED_DT);
     this.cb.render(dt);
     this.frames++;
   }

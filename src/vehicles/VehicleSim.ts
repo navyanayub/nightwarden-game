@@ -87,7 +87,7 @@ export class VehicleSim {
       topSpeed: spec.topSpeed,
       brakeForce: TUNING.brakeForce * Math.max(1, heavy * 0.9),
       stiffness: TUNING.stiffness * (spec.kind === 'bus' ? 2.2 : heavy > 1.3 ? 1.35 : 1),
-      comY: spec.kind === 'suv' || spec.kind === 'van' || spec.kind === 'pickup' ? -0.15 : TUNING.comY,
+      comY: spec.kind === 'suv' || spec.kind === 'van' || spec.kind === 'pickup' || spec.kind === 'tactical' ? -0.15 : TUNING.comY,
       esc: TUNING.esc * heavy,
       downforce: TUNING.downforce * heavy,
       rolling: TUNING.rolling * heavy,
@@ -249,6 +249,18 @@ export class VehicleSim {
     const r = this.chassis.rotation();
     this.curPos.set(p.x, p.y, p.z);
     this.curRot.set(r.x, r.y, r.z, r.w);
+  }
+
+  /** Flat tyres from a spike strip: less grip, limited speed. */
+  flats = 0;
+  puncture(): void {
+    if (this.flats >= 2) return;
+    this.flats++;
+    this.tune.frictionFront *= 0.62;
+    this.tune.frictionRear *= 0.6;
+    this.tune.handbrakeFriction *= 0.7;
+    this.tune.topSpeed = Math.min(this.tune.topSpeed, this.flats > 1 ? 13 : 21);
+    for (const i of [0, 1]) this.controller.setWheelFrictionSlip(i, this.tune.frictionFront);
   }
 
   resetUpright(): void {

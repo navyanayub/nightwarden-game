@@ -1,22 +1,22 @@
 {
   "preset": "high",
   "renderer": "SwiftShader (software) unless --headed",
-  "avgFps": 0.248,
+  "avgFps": 0.25,
   "frames": 10,
-  "seconds": 40.3,
-  "cpuUpdateMs": 3.56,
-  "trafficMs": 0.85,
-  "crowdMs": 0.66,
-  "renderSubmitMs": 570.9,
-  "cars": 94,
+  "seconds": 40.1,
+  "cpuUpdateMs": 2.99,
+  "trafficMs": 0.83,
+  "crowdMs": 0.38,
+  "renderSubmitMs": 604,
+  "cars": 93,
   "carsOnScreen": 71,
-  "pedestrians": 175,
+  "pedestrians": 178,
   "pedestriansDrawn": 129,
   "pedLods": [
     0,
-    21,
-    108
+    22,
+    107
   ],
-  "drawCalls": 559,
-  "triangles": 3578167
+  "drawCalls": 565,
+  "triangles": 3612349
 }

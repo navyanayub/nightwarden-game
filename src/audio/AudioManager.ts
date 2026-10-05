@@ -113,6 +113,13 @@ export class AudioManager {
   private listenerPos = new THREE.Vector3();
   private frame: AudioFrame | null = null;
   private horn: { osc: OscillatorNode[]; gain: GainNode } | null = null;
+  private lastShot = 0;
+  private lastBlip = 0;
+  // Stage 4 looping voices.
+  private sirenVoices: { panner: PannerNode; gain: GainNode }[] = [];
+  private heliVoices: { panner: PannerNode; gain: GainNode }[] = [];
+  private alarmVoice: { panner: PannerNode; gain: GainNode } | null = null;
+  private fireVoice: { panner: PannerNode; gain: GainNode } | null = null;
 
   constructor() {
     try {
@@ -125,8 +132,104 @@ export class AudioManager {
     events.on('traffic:horn', (h) => this.hornAt(h.x, h.z));
     events.on('world:alarm', (a) => {
       if (a.kind === 'crash') this.crash(a.x, a.z);
-      if (a.kind === 'gunshot') this.gunshot(a.x, a.z);
+      // NPC shots sound per bullet (combat:shot); this covers the F6 debug shot.
+      if (a.kind === 'gunshot' && performance.now() - this.lastShot > 300) this.gunshot(a.x, a.z);
     });
+    // Stage 4: gunfights, scanner, spike strips.
+    events.on('combat:shot', (g) => {
+      this.lastShot = performance.now();
+      if (this.ctx && !this.paused && Math.hypot(g.x - this.listenerPos.x, g.z - this.listenerPos.z) < 400) this.gunshot(g.x, g.z, g.police);
+    });
+    events.on('police:scanner', (sc) => this.blip(!!sc.priority));
+    events.on('police:spikes', (e) => this.spikes(e.x, e.z));
+    // Stage 3: fights, traversal and gadgets.
+    events.on('combat:hit', (h) => this.thump(h.x, h.y, h.z, h.strength, !!h.blocked));
+    events.on('combat:ko', (k) => this.thump(k.x, 0.6, k.z, 1, false));
+    events.on('player:land', (l) => {
+      if (l.speed > 7 || l.dive) this.thump(l.x, l.y, l.z, l.dive ? 1.4 : Math.min(1, l.speed / 18), false);
+    });
+    events.on('player:grapple', (g) => this.zip(g.x, g.y, g.z));
+    events.on('combat:gadget', (g) => this.gadget(g.kind, g.x, g.y, g.z));
+  }
+
+  /** Body impact: a pitched-down sine thump plus a short noise slap (metal clank if blocked). */
+  private thump(x: number, y: number, z: number, strength: number, blocked: boolean): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const p = this.positional(x, y, z, 6);
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150 + strength * 40, t);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.16);
+    g.gain.setValueAtTime(0.9 * Math.min(1.4, 0.4 + strength), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g).connect(p);
+    o.start(t);
+    o.stop(t + 0.25);
+    this.burst(p, 0.45 + strength * 0.35, 1800 + strength * 1500, 0.07);
+    if (blocked) this.sample(`impactPlate_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.7, 1.4);
+    else if (strength > 0.9) this.sample(`impactPlate_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.25, 0.5);
+  }
+
+  /** Grapple: line whine + whoosh. */
+  private zip(x: number, y: number, z: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(900, t);
+    o.frequency.exponentialRampToValueAtTime(2400, t + 0.18);
+    g.gain.setValueAtTime(0.06, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.3);
+    this.burst(this.sfx, 0.35, 2500, 0.45);
+    void x;
+    void y;
+    void z;
+  }
+
+  private gadget(kind: 'smoke' | 'dart' | 'disarm', x: number, y: number, z: number): void {
+    if (!this.ctx) return;
+    const p = this.positional(x, y, z, 6);
+    if (kind === 'smoke') {
+      this.burst(p, 0.8, 600, 0.12);
+      this.burst(p, 0.5, 4000, 1.6, 0.05);
+    } else if (kind === 'dart') {
+      this.burst(this.sfx, 0.4, 5000, 0.08);
+    } else {
+      this.burst(this.sfx, 0.4, 2600, 0.3);
+      this.sample(`impactMetal_heavy_00${Math.floor(Math.random() * 3)}`, p, 0.4, 1.6, 0.25);
+    }
+  }
+
+  private rushNode: { src: AudioBufferSourceNode; gain: GainNode; filt: BiquadFilterNode } | null = null;
+
+  /** Air rush while gliding / zipping / falling fast (0..1). */
+  setRush(level: number): void {
+    if (!this.ctx) return;
+    if (!this.rushNode) {
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise.white;
+      src.loop = true;
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'bandpass';
+      filt.Q.value = 0.7;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(filt).connect(gain).connect(this.sfx);
+      src.start();
+      this.rushNode = { src, gain, filt };
+    }
+    const t = this.ctx.currentTime;
+    this.rushNode.gain.gain.setTargetAtTime(Math.min(1, level) * 0.32, t, 0.2);
+    this.rushNode.filt.frequency.setTargetAtTime(300 + level * 1400, t, 0.2);
   }
 
   get ready(): boolean {
@@ -581,11 +684,161 @@ export class AudioManager {
     if (!ok) this.burst(p, 0.5, 300, 0.4);
   }
 
-  private gunshot(x: number, z: number): void {
+  private gunshot(x: number, z: number, police = false): void {
     if (!this.ctx) return;
     const p = this.positional(x, 1.5, z, 15);
-    this.burst(p, 0.9, 1500, 0.25);
-    this.burst(this.reverb, 0.3, 800, 0.8);
+    this.burst(p, 0.9, police ? 1900 : 1500, 0.22);
+    this.burst(p, 0.5, 5000, 0.04);
+    const d = Math.hypot(x - this.listenerPos.x, z - this.listenerPos.z);
+    this.burst(this.reverb, 0.3 * Math.min(1, 60 / Math.max(d, 20)), 800, 0.8);
+  }
+
+  /** Police radio: two or three short beeps through a narrow band. */
+  private blip(urgent: boolean): void {
+    if (!this.ctx || this.paused || performance.now() - this.lastBlip < 600) return;
+    this.lastBlip = performance.now();
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.connect(this.sfx);
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = urgent ? 1350 : 1050;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1200;
+    f.Q.value = 3;
+    o.connect(f).connect(g);
+    for (let k = 0; k < (urgent ? 3 : 2); k++) {
+      g.gain.setValueAtTime(0.035, t + k * 0.11);
+      g.gain.setValueAtTime(0, t + k * 0.11 + 0.06);
+    }
+    o.start(t);
+    o.stop(t + 0.4);
+    this.burst(this.sfx, 0.03, 3000, 0.25, 0.32);
+  }
+
+  private spikes(x: number, z: number): void {
+    if (!this.ctx) return;
+    const p = this.positional(x, 0.5, z, 10);
+    this.burst(p, 0.8, 4000, 0.15);
+    this.burst(p, 0.4, 7000, 1.2, 0.1);
+  }
+
+  /** Looping positional voices for sirens, helicopters, the bank alarm and fires (built lazily). */
+  private buildStage4(): void {
+    const ctx = this.ctx!;
+    const voice = (src: AudioNode, ref: number) => {
+      const panner = this.positional(0, -1000, 0, ref);
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(gain).connect(panner);
+      return { panner, gain };
+    };
+    for (let i = 0; i < 3; i++) {
+      // Wail: triangle swept by a slow LFO (each unit slightly detuned / out of phase).
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = 880 + i * 25;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.32 + i * 0.05;
+      const depth = ctx.createGain();
+      depth.gain.value = 300;
+      lfo.connect(depth).connect(o.frequency);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 2600;
+      o.connect(f);
+      o.start();
+      lfo.start();
+      this.sirenVoices.push(voice(f, 18));
+    }
+    for (let i = 0; i < 2; i++) {
+      // Rotor: brown noise chopped at the blade-pass frequency.
+      const n = this.loopNoise('brown');
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 220;
+      const chop = ctx.createGain();
+      chop.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 15 + i * 1.3;
+      const lg = ctx.createGain();
+      lg.gain.value = 0.5;
+      lfo.connect(lg).connect(chop.gain);
+      n.connect(lp).connect(chop);
+      lfo.start();
+      const turbine = ctx.createOscillator();
+      turbine.type = 'sawtooth';
+      turbine.frequency.value = 410 + i * 30;
+      const tg = ctx.createGain();
+      tg.gain.value = 0.04;
+      turbine.connect(tg).connect(chop);
+      turbine.start();
+      this.heliVoices.push(voice(chop, 40));
+    }
+    {
+      // Alarm bell: square alternating between two pitches.
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = 950;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'square';
+      lfo.frequency.value = 3;
+      const lg = ctx.createGain();
+      lg.gain.value = 140;
+      lfo.connect(lg).connect(o.frequency);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 1000;
+      f.Q.value = 1.2;
+      o.connect(f);
+      o.start();
+      lfo.start();
+      this.alarmVoice = voice(f, 12);
+    }
+    {
+      // Fire: roaring brown noise + crackle.
+      const n = this.loopNoise('brown');
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'lowpass';
+      bp.frequency.value = 500;
+      const c = this.loopNoise('white');
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 3000;
+      const cg = ctx.createGain();
+      cg.gain.value = 0.15;
+      const mix = ctx.createGain();
+      n.connect(bp).connect(mix);
+      c.connect(hp).connect(cg).connect(mix);
+      this.fireVoice = voice(mix, 10);
+    }
+  }
+
+  /** Per frame (Stage 4): nearest sirens, helicopters, alarm and fire. */
+  setCrimeSounds(o: { sirens: THREE.Vector3[]; helis: THREE.Vector3[]; alarm: THREE.Vector3 | null; fire: THREE.Vector3 | null }): void {
+    if (!this.ctx || this.paused) return;
+    if (!this.sirenVoices.length) this.buildStage4();
+    const t = this.ctx.currentTime;
+    const L = this.listenerPos;
+    const place = (v: { panner: PannerNode; gain: GainNode }, p: THREE.Vector3 | undefined | null, gain: number) => {
+      if (!p) {
+        v.gain.gain.setTargetAtTime(0, t, 0.4);
+        return;
+      }
+      v.panner.positionX.setTargetAtTime(p.x, t, 0.05);
+      v.panner.positionY.setTargetAtTime(p.y + 1.5, t, 0.05);
+      v.panner.positionZ.setTargetAtTime(p.z, t, 0.05);
+      v.gain.gain.setTargetAtTime(gain, t, 0.3);
+    };
+    const near = [...o.sirens].sort((a, b) => a.distanceToSquared(L) - b.distanceToSquared(L));
+    this.sirenVoices.forEach((v, i) => place(v, near[i], 0.16));
+    this.heliVoices.forEach((v, i) => place(v, o.helis[i], 0.6));
+    if (this.alarmVoice) place(this.alarmVoice, o.alarm, 0.12);
+    if (this.fireVoice) place(this.fireVoice, o.fire, 0.5);
   }
 
   private burst(dest: AudioNode, gain: number, freq: number, dur: number, when = 0): void {

@@ -3,7 +3,65 @@
 An original open-world action game for the web browser, set in the fictional coastal city of
 **Port Vellmoor**. Built with three.js, Rapier physics and a modern post-processing stack.
 
-**Stage 2 of 7 — the living city.** Explore the whole city on foot and behind the wheel: the
+**Stage 4 of 7 — crime and police.** Port Vellmoor now has a criminal underworld and a police
+force that reacts to it — and to you.
+
+- **Dynamic crime**: muggings, car thefts, shop robberies, armed bank robberies at Brightwater
+  Savings, gang street fights, hostage situations inside warehouses, getaway car chases,
+  warehouse deals and arson. Crimes are likelier at night and in storms, and are committed by
+  whichever gang runs the district. Each one comes over the **police scanner** (left), gets a
+  map icon and a **timer** (top left). Ignore it and the victim gets hurt, the shop burns or the
+  criminals escape — and the gang grows stronger. Stop it and the criminals are left zip-tied
+  for the police; your reputation, cash and Police Trust go up and the gang loses its grip.
+- **Three gangs**: the **Tidewater Crew** (Harbour; sea-green windbreakers and beanies, knives,
+  vans), the **Ashline Syndicate** (Industrial; charcoal workwear with hi-vis orange, pipes,
+  heavy brutes, dark SUVs) and the **Velvet Hand** (Midtown; long burgundy coats, pistols, black
+  sedans). The full map (**M**) shades every district in the colour of the gang that controls
+  it; knock a gang's control to zero and it loses the district. Gangs hit back with ambushes
+  and armed cars cruising the streets around you.
+- **Vellmoor Police Department**: navy Interceptor patrol cars and Bastion armoured vans with
+  red/blue lightbars and sirens respond to crimes, dismount and fight criminals in proper
+  gunfights — tracers, muzzle flashes, sparks and bullet marks on walls, officers taking cover
+  behind cars and crates. They chase getaway cars with PIT manoeuvres, boxing in and ramming.
+- **Wanted level** for your own crimes (running people over, stealing cars in front of the
+  police, attacking officers, wrecking property): 1 nearby patrols · 2 more units · 3
+  **roadblocks with spike strips** · 4 armoured tactical vans and a **helicopter with a
+  searchlight** · 5 tactical teams and two helicopters. Break line of sight, get out of the
+  search circle on the minimap — or hide on a rooftop or in an alley — and wait it out. Get
+  caught and you are released from **VPD Precinct 1** with a fine; get knocked out and you wake
+  up at **Port Vellmoor General Hospital** with a bill.
+- **Police Trust**: below 30 the police treat the masked vigilante as a suspect at crime scenes
+  and try to arrest him; above 60 they let him work.
+- **HUD**: crime notifications, the active-crime list with timers, wanted badges (flashing while
+  they search), money, the scanner feed and the *Vellmoor Gazette* news ticker reporting what
+  the Nightwarden did. Press **J** for your record: crimes stopped, reputation, Police Trust and
+  gang control in every district.
+
+**Stage 3 — the vigilante.** Press **V** to become the Nightwarden: a slate-grey
+armoured suit with a hood, a half-mask with glowing pale-blue lenses, a silver crescent on the
+chest and a long storm-grey cape that really moves — it streams when you run, billows when you
+fall, whips about in storms, darkens and shines when wet, and snaps into a taut wing when you
+glide.
+
+- **Traversal**: vault low obstacles at a run, grab ledges, shimmy along them, climb up or drop;
+  fire the **grapple gun** at a roof edge (aim assist shows a reticle) to zip up with a launch
+  over the top; **hold Space in the air to glide** — dive to gain speed, pull up to trade it
+  for height, ride the hot-air **updrafts** above chimneys and roof vents, and dive-bomb onto
+  enemies to knock them down. Falls hurt unless you glide.
+- **Freeflow combat**: strike in any direction and the hero lunges to the target; counter
+  attackers when the yellow ⚡ warning appears (red ! = dodge instead); cape-stun, combo
+  counter, finishers, a gadget wheel (smoke pellet, stun darts, disarm grapple), a combat camera
+  and a slow-motion beat on the last knockout. Non-lethal: enemies are knocked out, never
+  killed. Health and armour regenerate out of combat.
+- **Gangs**: six hangouts around the city (red squares on the map) with thugs carrying fists,
+  pipes, knives and pistols, heavy brutes and riot-shield thugs. They notice you (?), raise the
+  alarm (!), call backup, gang up a couple at a time while the rest circle and flank, and run
+  when the fight is lost.
+- **Ragdolls** for everyone — thugs, pedestrians hit by your car and the hero — with get-ups
+  from the front or the back. An optional gore setting (off by default) lets only extreme
+  impacts detach limbs, cleanly sealed.
+
+**Stage 2 — the living city.** Explore the whole city on foot and behind the wheel: the
 glass towers of Midtown, the brick lanes and clock-tower square of Old Town, the cranes and
 container yards of the Harbour, the chimneys and rail yard of the Industrial district, the
 suburban streets of Northside Hills, the lake in Vellmoor Park, and Gullhaven Island's airfield
@@ -39,8 +97,16 @@ The streets are now alive:
    the Harbour waterfront road.
 4. The **minimap** (bottom left) turns with the camera; press **M** for the full city map. The
    clock and the weather are shown top right.
-5. Press **Esc** at any time to pause: pick a graphics preset, set the master / music /
-   effects volume and choose how long a game day lasts. Press **H** for the controls.
+5. Press **V** to suit up as the Nightwarden. Gang hangouts are the red squares on the map
+   (**M**) — walk or glide in and they will come for you.
+6. Crimes pop up over the police scanner with a timer and an icon on the minimap — get there
+   in time (on foot, gliding, grappling or by car) and knock the criminals out. Press **J** to
+   see your record and which gang holds which district.
+7. Commit crimes yourself and the police come for you (wanted badges top right). Lose them by
+   breaking line of sight and leaving the search circle, or by hiding on a roof.
+8. Press **Esc** at any time to pause: pick a graphics preset, set the master / music /
+   effects volume, choose how long a game day lasts and turn the gore option on or off.
+   Press **H** for the controls.
 
 ### Controls
 
@@ -49,9 +115,32 @@ The streets are now alive:
 | Move | **W A S D** (or arrow keys) |
 | Look | **Mouse** |
 | Sprint | **Shift** |
-| Jump | **Space** |
+| Jump / vault / grab a ledge | **Space** |
 | Enter a car / take a car from traffic | **E** (near a parked car or a slow / stopped one) |
+| Civilian ⇄ Nightwarden | **V** |
 | Camera zoom | **Mouse wheel** |
+
+| Traversal (as the Nightwarden) | |
+| --- | --- |
+| Vault a low obstacle / mantle onto a low ledge | run into it (or press **Space**) |
+| Grab a ledge | jump or fall at it |
+| Ledge: shimmy / climb up / drop | **A D** / **W** or **Space** / **S** |
+| Grapple to a roof edge (reticle shows the target) | **G** or **Right mouse** (not in combat) |
+| Let go mid-zip (chain into a glide) | **Space** |
+| Glide | hold **Space** in the air |
+| Glide: dive / pull up / turn | **W** / **S** / **A D** |
+| Updrafts | glide over chimneys and roof vents (rising steam) |
+| Dive-bomb | dive steeply and land next to enemies |
+
+| Combat | |
+| --- | --- |
+| Strike (aimed with the move keys, lunges to the target) | **Left mouse** |
+| Counter (yellow ⚡ over an attacker) | **Q** |
+| Dodge / roll (red ! = unblockable or gunfire) | **Space** |
+| Cape stun (also breaks riot shields) | **C** |
+| Finisher (combo 5+, on a stunned thug) | **F** |
+| Gadget wheel (time slows; mouse or 1/2/3 to pick) | hold **Tab** |
+| Use gadget: smoke pellet / stun darts / disarm grapple | **R** |
 
 | Driving | |
 | --- | --- |
@@ -67,8 +156,9 @@ The streets are now alive:
 | General | |
 | --- | --- |
 | Controls panel | **H** |
-| Pause menu (graphics, audio, day length) | **Esc** (or **P**) |
-| City map | **M** |
+| Pause menu (graphics, audio, day length, gore) | **Esc** (or **P**) |
+| City map (gang territory, crimes, police) | **M** |
+| Record: reputation, Police Trust, gang control | **J** |
 | Fast-forward time (hold) | **T** |
 | Cycle the weather | **Y** |
 | Test gunshot (debug: pedestrians react) | **F6** |
@@ -79,7 +169,9 @@ The streets are now alive:
 | Move / steer | Left stick |
 | Look | Right stick |
 | Throttle / brake | RT / LT |
-| Jump / handbrake | A |
+| Jump / handbrake / glide (hold) | A |
+| Strike / counter / cape stun | X / Y / B |
+| Grapple / gadget wheel / use gadget | LB / LT / RT |
 | Enter / exit | Y |
 | Sprint | B or L3 |
 | Horn / city map | D-pad down / D-pad right |
@@ -107,7 +199,10 @@ npm run dev        # http://localhost:5173/nightwarden-game/
 npm run build      # type-check + static build into /docs
 npm run preview    # serve /docs at http://localhost:4173/nightwarden-game/
 npm run test:e2e   # headless Chromium: loads the game, fails on console errors, checks walking,
-                   # driving, traffic, hijacking, crowds, time of day and weather
+                   # driving, traffic, hijacking, crowds, time of day, weather, cape stability,
+                   # ledges, grapple, glide, fights, ragdolls, gore, a 10-minute crime run
+                   # (screenshots/crime-log.json), police response, wanted levels, roadblocks,
+                   # spike strips, busted / hospital, escaping and territory
 npm run screenshots   # + screenshots/
 npm run perf          # performance log -> screenshots/perf-high.json (use --headed on a GPU machine)
 ```
@@ -119,8 +214,8 @@ for every asset (all CC0).
 
 1. Foundations — engine, rendering, city, player, first car, UI ✅
 2. Living city — traffic, pedestrians, day/night, weather, audio ✅
-3. The vigilante — suit, cape physics, grapple, gliding, combat, ragdolls
-4. Crime and police
+3. The vigilante — suit, cape physics, grapple, gliding, combat, ragdolls ✅
+4. Crime and police — crimes, gangs and territory, police, pursuits, wanted level ✅
 5. Dual identity
 6. Every vehicle type
 7. Polish, missions and saves

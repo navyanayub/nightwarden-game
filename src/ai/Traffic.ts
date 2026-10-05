@@ -90,6 +90,10 @@ export class Traffic {
   /** Collider handles of the player's vehicle (for crash detection). */
   playerColliders: RAPIER.Collider[] = [];
   playerVehicleSpeed = 0;
+  /** AI-driven physical cars (police, getaways) drawn with the traffic instancing. */
+  extra: (CarRenderState & { id: number; spec: VehicleSpec; driver: boolean })[] = [];
+  /** Their chassis colliders (hits turn traffic cars into wrecks too). */
+  aiColliders: { collider: RAPIER.Collider; speed: () => number }[] = [];
 
   constructor(graph: LaneGraph, maxCars: number) {
     this.graph = graph;
@@ -270,7 +274,8 @@ export class Traffic {
       [0.76, 'suv'],
       [0.83, 'pickup'],
       [0.9, 'van'],
-      [1, 'taxi'],
+      [0.975, 'taxi'],
+      [1, 'police'],
     ];
     for (const [p, k] of table) if (r < p) return SPECS[k];
     return SPECS.sedan;
@@ -396,6 +401,8 @@ export class Traffic {
       const hazard = car.state === 'wreck';
       car.indL = (car.indicator < 0 || hazard) && blink ? blink : 0;
       car.indR = (car.indicator > 0 || hazard) && blink ? blink : 0;
+      // Patrol cars in traffic: the indicator channels drive the lightbar, keep it dark.
+      if (car.spec.kind === 'police') car.indL = car.indR = 0;
     }
   }
 
@@ -737,20 +744,37 @@ export class Traffic {
 
   /** After the physics step: did the player's car hit a traffic car? Turn it into a wreck. */
   detectCrashes(): void {
-    if (!this.playerColliders.length) return;
+    if (!this.playerColliders.length && !this.aiColliders.length) return;
     for (const car of this.cars) {
       if (car.state !== 'drive' || !car.collider || !car.body) continue;
       let hit = false;
+      let speed = 0;
       for (const pc of this.playerColliders) {
         physics.world.contactPair(car.collider, pc, (m) => {
           if (m.numContacts() > 0) hit = true;
         });
-        if (hit) break;
+        if (hit) {
+          speed = Math.abs(this.playerVehicleSpeed);
+          break;
+        }
+      }
+      const byPlayer = hit;
+      if (!hit) {
+        for (const ai of this.aiColliders) {
+          physics.world.contactPair(car.collider, ai.collider, (m) => {
+            if (m.numContacts() > 0) hit = true;
+          });
+          if (hit) {
+            speed = Math.abs(ai.speed());
+            break;
+          }
+        }
       }
       if (!hit) continue;
-      if (Math.abs(this.playerVehicleSpeed) + car.speed < 2.5) continue;
+      if (speed + car.speed < 2.5) continue;
       this.wreck(car);
       events.emit('world:alarm', { x: car.x, z: car.z, radius: 30, kind: 'crash' });
+      if (byPlayer && speed > 6) events.emit('player:offense', { kind: 'property', x: car.x, z: car.z });
     }
   }
 
@@ -816,13 +840,13 @@ export class Traffic {
 
   /** Render upload. */
   draw(night: number, cam: THREE.Vector3): void {
-    this.render.update(this.cars, night, cam);
+    this.render.update(this.extra.length ? [...this.cars, ...this.extra] : this.cars, night, cam);
   }
 
   /** Random seat-height world positions of visible drivers near the camera (for crowd figures). */
   driverSeats(cam: THREE.Vector3, maxD: number, out: { id: number; x: number; y: number; z: number; yaw: number; pitch: number }[]): void {
     out.length = 0;
-    for (const c of this.cars) {
+    for (const c of [...this.cars, ...this.extra]) {
       if (!c.driver || !c.visible) continue;
       const d = Math.hypot(c.x - cam.x, c.z - cam.z);
       if (d > maxD) continue;

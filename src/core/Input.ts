@@ -21,7 +21,21 @@ export type Action =
   | 'weather'
   | 'map'
   | 'horn'
-  | 'debugShot';
+  | 'debugShot'
+  // Stage 3: the vigilante.
+  | 'hero'
+  | 'attack'
+  | 'grapple'
+  | 'counter'
+  | 'capeStun'
+  | 'gadgets'
+  | 'useGadget'
+  | 'finisher'
+  | 'gadget1'
+  | 'gadget2'
+  | 'gadget3'
+  // Stage 4: crime and police.
+  | 'record';
 
 const KEY_BINDINGS: Record<Action, string[]> = {
   forward: ['KeyW', 'ArrowUp'],
@@ -36,12 +50,24 @@ const KEY_BINDINGS: Record<Action, string[]> = {
   controls: ['KeyH'],
   stats: ['F3'],
   lights: ['KeyL'],
-  camera: ['KeyC'],
+  camera: [],
   timeskip: ['KeyT'],
   weather: ['KeyY'],
   map: ['KeyM'],
   horn: ['KeyQ'],
   debugShot: ['F6'],
+  hero: ['KeyV'],
+  attack: ['Mouse0'],
+  grapple: ['KeyG', 'Mouse2'],
+  counter: ['KeyQ'],
+  capeStun: ['KeyC'],
+  gadgets: ['Tab'],
+  useGadget: ['KeyR'],
+  finisher: ['KeyF'],
+  gadget1: ['Digit1'],
+  gadget2: ['Digit2'],
+  gadget3: ['Digit3'],
+  record: ['KeyJ'],
 };
 
 // Standard gamepad mapping button indices.
@@ -57,6 +83,12 @@ const PAD_BINDINGS: Partial<Record<Action, number[]>> = {
   map: [15],
   horn: [13],
   timeskip: [14],
+  attack: [2],
+  counter: [3],
+  capeStun: [1],
+  grapple: [4],
+  gadgets: [6],
+  useGadget: [7],
 };
 
 export class Input {
@@ -79,27 +111,27 @@ export class Input {
   brake = 0;
   gamepadConnected = false;
   /** Scripted input for tests/tools (overrides keyboard & gamepad axes). */
-  forced: { moveX?: number; moveY?: number; sprint?: boolean } | null = null;
+  forced: { moveX?: number; moveY?: number; sprint?: boolean; hold?: Action[] } | null = null;
   mouseSensitivity = 0.0022;
   invertY = false;
 
   constructor(private readonly element: HTMLElement) {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F3' || e.code === 'F6' || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'Tab') e.preventDefault();
-      if (!this.down.has(e.code)) this.pressedKeys.add(e.code);
-      this.down.add(e.code);
-      for (const [action, keys] of Object.entries(KEY_BINDINGS) as [Action, string[]][]) {
-        if (keys.includes(e.code) && !e.repeat) this.latched.add(action);
-      }
+      this.keyDown(e.code, e.repeat);
     });
     window.addEventListener('keyup', (e) => this.down.delete(e.code));
     window.addEventListener('blur', () => this.down.clear());
+    // Mouse buttons behave like keys named Mouse0 (left), Mouse1 (middle), Mouse2 (right).
     element.addEventListener('mousedown', (e) => {
       this.mouseButtons |= 1 << e.button;
+      this.keyDown(`Mouse${e.button}`, false);
     });
     window.addEventListener('mouseup', (e) => {
       this.mouseButtons &= ~(1 << e.button);
+      this.down.delete(`Mouse${e.button}`);
     });
+    element.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('mousemove', (e) => {
       if (!this.pointerLocked) return;
       this.mouseDX += e.movementX;
@@ -119,6 +151,15 @@ export class Input {
     window.addEventListener('gamepaddisconnected', () => (this.gamepadConnected = false));
   }
 
+  private keyDown(code: string, repeat: boolean): void {
+    if (!this.down.has(code)) this.pressedKeys.add(code);
+    this.down.add(code);
+    if (repeat) return;
+    for (const [action, keys] of Object.entries(KEY_BINDINGS) as [Action, string[]][]) {
+      if (keys.includes(code)) this.latched.add(action);
+    }
+  }
+
   requestPointerLock(): void {
     if (document.pointerLockElement === this.element) return;
     try {
@@ -136,6 +177,7 @@ export class Input {
   /** Is the action currently held? */
   held(action: Action): boolean {
     if (action === 'sprint' && this.forced?.sprint) return true;
+    if (this.forced?.hold?.includes(action)) return true;
     for (const k of KEY_BINDINGS[action]) if (this.down.has(k)) return true;
     const pads = PAD_BINDINGS[action];
     if (pads) for (const b of pads) if (this.padDown.has(b)) return true;

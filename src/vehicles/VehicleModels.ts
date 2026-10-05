@@ -6,12 +6,14 @@
  * left (+X) for right-hand traffic.
  *
  * All makes and models are fictional (Corvane, Halden, Marisco, Oberline, Tessaro, Vellmar).
+ * Vellmoor Police Department (VPD) livery: navy body, white doors with a light-blue pinstripe,
+ * red/blue roof lightbar and a black push bar (Interceptor sedan, Bastion armoured van).
  */
 import * as THREE from 'three';
 import { MeshBuilder, type V3 } from '../world/MeshBuilder';
 import { signs } from '../world/Signage';
 
-export type VehicleKind = 'compact' | 'hatchback' | 'sedan' | 'estate' | 'suv' | 'pickup' | 'van' | 'taxi' | 'bus';
+export type VehicleKind = 'compact' | 'hatchback' | 'sedan' | 'estate' | 'suv' | 'pickup' | 'van' | 'taxi' | 'bus' | 'police' | 'tactical';
 
 export interface VehicleSpec {
   kind: VehicleKind;
@@ -125,6 +127,20 @@ export const SPECS: Record<VehicleKind, VehicleSpec> = {
     mass: 11000, engineForce: 30000, topSpeed: 24, aiSpeed: 0.75,
     palette: [[0.06, 0.25, 0.45]],
   },
+  police: {
+    kind: 'police', make: 'VPD', model: 'Interceptor', length: 4.86, width: 1.9, track: 1.62, frontAxle: 1.42, rearAxle: -1.48, wheelRadius: 0.35,
+    clearance: 0.21, belt: 0.97, beltRise: 0.06, hoodBase: 0.98, nose: 0.68, roof: 1.46, deck: 1.04, tailDrop: 0.24,
+    ws0: 0.94, ws1: 0.04, rw0: -0.8, rw1: -1.46, sideFront: 0.74, sideRear: -1.0, pillars: [-0.22, -0.78], plan: 0.76, tumble: 0.28,
+    mass: 1560, engineForce: 9400, topSpeed: 68, aiSpeed: 1.05,
+    palette: [[0.02, 0.035, 0.09]],
+  },
+  tactical: {
+    kind: 'tactical', make: 'VPD', model: 'Bastion', length: 5.7, width: 2.2, track: 1.86, frontAxle: 2.0, rearAxle: -1.8, wheelRadius: 0.43,
+    clearance: 0.36, belt: 1.3, beltRise: 0.0, hoodBase: 1.32, nose: 1.12, roof: 2.42, deck: 2.3, tailDrop: 0.05,
+    ws0: 1.9, ws1: 1.25, rw0: -2.8, rw1: -2.84, sideFront: 1.7, sideRear: 0.95, pillars: [], plan: 0.94, tumble: 0.06,
+    mass: 4200, engineForce: 15500, topSpeed: 42, aiSpeed: 0.9,
+    palette: [[0.07, 0.075, 0.08]],
+  },
 };
 
 export const TRAFFIC_KINDS: VehicleKind[] = ['compact', 'hatchback', 'sedan', 'estate', 'suv', 'pickup', 'van', 'taxi'];
@@ -234,6 +250,8 @@ export const LAMP_KEYS: Record<string, number> = {
   car_reverse: 3,
   car_indicator_l: 4,
   car_indicator_r: 5,
+  car_bar_r: 4,
+  car_bar_b: 5,
 };
 
 /** Emit a full vehicle body into a MeshBuilder (keys: car_paint, car_glass, car_trim, car_black...). */
@@ -286,7 +304,7 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
     const z = stations[idx];
     for (let k = 0; k < np - 1; k++) {
       // Vans and buses have glazed ends above the belt.
-      const key = (s.kind === 'bus' || s.kind === 'van') && pts[k][1] > s.belt + 0.25 && pts[k + 1][1] < s.roof - 0.12 && (sign > 0 || s.kind === 'bus') ? 'car_glass' : 'car_paint';
+      const key = (s.kind === 'bus' || s.kind === 'van' || s.kind === 'tactical') && pts[k][1] > s.belt + 0.25 && pts[k + 1][1] < s.roof - 0.12 && (sign > 0 || s.kind === 'bus') ? 'car_glass' : 'car_paint';
       for (const side of [1, -1]) {
         const a: V3 = [0, pts[k][1], z];
         const b: V3 = [pts[k][0] * side, pts[k][1], z];
@@ -300,7 +318,8 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
   // ---------------------------------------------------------------- front
   const fz = L;
   const rz = -L;
-  const big = s.kind === 'suv' || s.kind === 'pickup' || s.kind === 'van' || s.kind === 'bus';
+  const vanLike = s.kind === 'van' || s.kind === 'tactical';
+  const big = s.kind === 'suv' || s.kind === 'pickup' || vanLike || s.kind === 'bus';
   const ny = sh.deckY(L - 0.02);
   const gw = big ? 0.62 : 0.46;
   const gy0 = ny - (big ? 0.42 : 0.21);
@@ -334,8 +353,8 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
   // ---------------------------------------------------------------- rear
   const tailTop = sh.deckY(-L + 0.01);
   const ty1 = Math.min(tailTop - 0.04, s.belt + 0.05);
-  const ty0 = ty1 - (s.kind === 'van' || s.kind === 'bus' ? 0.3 : 0.15);
-  const rearBar = s.kind === 'sedan' || s.kind === 'taxi' || s.kind === 'estate';
+  const ty0 = ty1 - (vanLike || s.kind === 'bus' ? 0.3 : 0.15);
+  const rearBar = s.kind === 'sedan' || s.kind === 'taxi' || s.kind === 'estate' || s.kind === 'police';
   if (rearBar) mb.box('car_brake', -0.62, ty1 - 0.04, rz - 0.035, 0.62, ty1, rz + 0.06);
   for (const sx of [-1, 1]) {
     const cx = sx * (s.width / 2 - 0.16);
@@ -377,17 +396,17 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
     mb.box('car_glass_mirror', -0.075, -0.05, -0.075, 0.075, 0.055 + (big ? 0.06 : 0), -0.068);
     mb.popTransform();
     // Door handles & shut lines.
-    const doors = s.kind === 'van' ? [s.sideFront - 0.1, -0.2] : s.kind === 'bus' ? [] : s.pillars.length ? [s.sideFront - 0.4, s.pillars[0] - 0.4] : [s.sideFront - 0.4];
+    const doors = vanLike ? [s.sideFront - 0.1, -0.2] : s.kind === 'bus' ? [] : s.pillars.length ? [s.sideFront - 0.4, s.pillars[0] - 0.4] : [s.sideFront - 0.4];
     for (const hz of doors) {
       const hx = sx * (sh.halfWidth(hz) + 0.004);
       mb.box('car_chrome', hx - 0.012, s.belt - 0.1, hz - 0.1, hx + 0.012, s.belt - 0.075, hz + 0.05);
     }
-    const seams = s.kind === 'bus' ? [] : s.kind === 'van' ? [s.sideFront + 0.12, 0.85, -1.3] : [s.sideFront + 0.14, ...s.pillars];
+    const seams = s.kind === 'bus' ? [] : vanLike ? [s.sideFront + 0.12, 0.85, -1.3] : [s.sideFront + 0.14, ...s.pillars];
     for (const sz of seams) {
       const x = sx * (sh.halfWidth(sz) + 0.002);
       mb.box('car_black', x - 0.003, sh.archBottom(sz) + 0.05, sz - 0.004, x + 0.003, sh.beltY(sz) - 0.02, sz + 0.004);
     }
-    if (s.kind !== 'bus' && s.kind !== 'van') mb.beam('car_chrome', [sx * (sh.halfWidth(s.sideFront + 0.13) - 0.035), sh.beltY(s.sideFront) + 0.012, s.sideFront + 0.13], [sx * (sh.halfWidth(s.sideRear - 0.2) - 0.035), sh.beltY(s.sideRear) + 0.012, s.sideRear - 0.2], 0.018);
+    if (s.kind !== 'bus' && !vanLike) mb.beam('car_chrome', [sx * (sh.halfWidth(s.sideFront + 0.13) - 0.035), sh.beltY(s.sideFront) + 0.012, s.sideFront + 0.13], [sx * (sh.halfWidth(s.sideRear - 0.2) - 0.035), sh.beltY(s.sideRear) + 0.012, s.sideRear - 0.2], 0.018);
     mb.beam('car_black', [sx * (sh.halfWidth(s.frontAxle - 0.5) - 0.04), s.clearance + 0.04, s.frontAxle - 0.46], [sx * (sh.halfWidth(s.rearAxle + 0.5) - 0.04), s.clearance + 0.04, s.rearAxle + 0.46], 0.07, { height: 0.08 });
   }
   // Bus: entry doors on the kerb side (-X), destination display, livery band.
@@ -420,6 +439,48 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
         mb.box('car_stripe', x - 0.004, yb, z1, x + 0.004, yb + 0.05, z0);
       }
     }
+  }
+  // Police livery: white doors + light-blue pinstripe, roof lightbar, push bar, antenna.
+  if (s.kind === 'police' || s.kind === 'tactical') {
+    const tac = s.kind === 'tactical';
+    for (const sx of [-1, 1]) {
+      const z0 = tac ? s.sideFront - 0.05 : s.sideFront + 0.1;
+      const z1 = tac ? -L + 0.35 : s.sideRear - 0.25;
+      const steps = tac ? 14 : 12;
+      for (let k = 0; k < steps; k++) {
+        const za = z0 + ((z1 - z0) * k) / steps;
+        const zb = z0 + ((z1 - z0) * (k + 1)) / steps;
+        const zm = (za + zb) / 2;
+        const x = sx * (sh.halfWidth(zm) + 0.004);
+        const y0 = Math.max(sh.archBottom(zm) + 0.04, tac ? s.belt - 0.55 : s.belt - 0.4);
+        const y1 = tac ? s.belt - 0.25 : s.belt - 0.03;
+        if (y1 > y0) mb.box('car_stripe', x - 0.004, y0, Math.min(za, zb), x + 0.004, y1, Math.max(za, zb));
+        mb.box('car_livery', x - 0.005, y1 + 0.005, Math.min(za, zb), x + 0.005, y1 + 0.035, Math.max(za, zb));
+      }
+      if (tac) {
+        // Window grilles over the side glass.
+        for (let z = s.sideFront - 0.15; z > s.sideRear; z -= 0.12) {
+          const x = sx * (sh.halfWidth(z) - 0.02);
+          mb.box('car_black', x - 0.012, s.belt + 0.05, z - 0.012, x + 0.012, s.roof - 0.25, z + 0.012);
+        }
+        mb.box('car_black', sx * (s.width / 2) - 0.12, s.clearance - 0.05, -0.9, sx * (s.width / 2) + 0.06, s.clearance + 0.03, 0.9);
+      }
+    }
+    // Lightbar.
+    const by0 = s.roof + (tac ? 0.0 : 0.02);
+    const bz = tac ? s.ws1 - 0.25 : (s.ws1 + s.rw0) / 2 + 0.1;
+    const bw = tac ? 0.85 : 0.6;
+    mb.box('car_black', -bw - 0.03, by0, bz - 0.17, bw + 0.03, by0 + 0.05, bz + 0.17);
+    mb.box('car_bar_r', 0.06, by0 + 0.05, bz - 0.14, bw, by0 + 0.15, bz + 0.14);
+    mb.box('car_bar_b', -bw, by0 + 0.05, bz - 0.14, -0.06, by0 + 0.15, bz + 0.14);
+    mb.box('car_drl', -0.06, by0 + 0.05, bz - 0.1, 0.06, by0 + 0.12, bz + 0.1);
+    // Push bar.
+    const pz = L + 0.06;
+    const py = tac ? 0.95 : 0.78;
+    for (const sx of [-1, 1]) mb.box('car_black', sx * 0.42 - 0.03, s.clearance + 0.05, pz - 0.18, sx * 0.42 + 0.03, py, pz);
+    mb.box('car_black', -0.5, py - 0.12, pz - 0.05, 0.5, py - 0.05, pz + 0.02);
+    mb.box('car_black', -0.5, s.clearance + 0.12, pz - 0.05, 0.5, s.clearance + 0.19, pz + 0.02);
+    mb.beam('car_black', [-0.35, s.roof, s.rw0 - 0.1], [-0.35, s.roof + 0.5, s.rw0 - 0.16], 0.008);
   }
   // Wheel arch liners.
   const ar = sh.archR() - 0.015;
@@ -464,7 +525,7 @@ export function buildBody(spec: VehicleSpec, mb: MeshBuilder, lowDetail = false)
   const dashZ = s.ws0 - 0.15;
   mb.box('car_interior', -s.width / 2 + 0.11, s.belt - 0.28, dashZ - 0.28, s.width / 2 - 0.11, s.belt + 0.02, dashZ);
   mb.pushTRS(0.4, s.belt - 0.03, dashZ - 0.32, 0);
-  mb.pushTransform(new THREE.Matrix4().makeRotationX(s.kind === 'bus' || s.kind === 'van' ? -0.5 : -1.15));
+  mb.pushTransform(new THREE.Matrix4().makeRotationX(s.kind === 'bus' || vanLike ? -0.5 : -1.15));
   mb.lathe('car_black', 0, 0, [[0.18, -0.02], [0.2, 0.0], [0.18, 0.02], [0.16, 0.0], [0.18, -0.02]], 18);
   mb.cylinder('car_black', 0, -0.25, 0, 0.03, 0.03, 0.25, 8);
   mb.popTransform();
@@ -564,6 +625,9 @@ export const PART_COLORS: Record<string, [number, number, number]> = {
   car_reverse: [0.6, 0.6, 0.6],
   car_indicator_l: [0.8, 0.35, 0.02],
   car_indicator_r: [0.8, 0.35, 0.02],
+  car_bar_r: [1.6, 0.012, 0.01],
+  car_bar_b: [0.04, 0.2, 1.8],
+  car_livery: [0.25, 0.55, 0.9],
 };
 
 /** Detailed materials for a player-drivable vehicle. */
@@ -588,6 +652,9 @@ export function vehicleMaterials(color: THREE.Color) {
     car_indicator_r: indicator,
     car_sign: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(1, 0.85, 0.45), emissiveIntensity: 1.5, roughness: 0.3 }),
     car_stripe: new THREE.MeshStandardMaterial({ color: 0xe8e8e2, roughness: 0.35, metalness: 0.1 }),
+    car_livery: new THREE.MeshStandardMaterial({ color: 0x4a8ce6, roughness: 0.35, metalness: 0.1 }),
+    car_bar_r: new THREE.MeshStandardMaterial({ color: 0x400404, emissive: new THREE.Color(1, 0.05, 0.03), emissiveIntensity: 0, roughness: 0.2 }),
+    car_bar_b: new THREE.MeshStandardMaterial({ color: 0x041040, emissive: new THREE.Color(0.05, 0.2, 1), emissiveIntensity: 0, roughness: 0.2 }),
     car_plate: signs().material,
     car_interior: new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.8 }),
     car_seat: new THREE.MeshStandardMaterial({ color: 0x2a2523, roughness: 0.75 }),
@@ -632,7 +699,7 @@ export function buildVehicle(spec: VehicleSpec, color: THREE.Color): VehiclePart
   seat.position.copy(seatPos);
   root.add(seat);
   const wmb = new MeshBuilder();
-  buildWheel(spec.wheelRadius, wmb, spec.kind === 'bus' || spec.kind === 'van');
+  buildWheel(spec.wheelRadius, wmb, spec.kind === 'bus' || spec.kind === 'van' || spec.kind === 'tactical');
   const wheelProto = wmb.build(mats.byKey, { name: 'wheel' });
   for (const c of wheelProto.children) smoothNormals((c as THREE.Mesh).geometry, 0.6);
   const wheels: THREE.Group[] = [];

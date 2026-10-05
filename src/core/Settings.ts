@@ -137,30 +137,43 @@ class Settings {
   preset: GraphicsPreset = 'high';
   q: QualitySettings = { ...PRESETS.high };
   showStats = false;
+  /** Gore: extreme impacts may detach limbs (sealed, no blood). Off by default. */
+  gore = false;
 
   constructor() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as { preset?: GraphicsPreset };
+        const saved = JSON.parse(raw) as { preset?: GraphicsPreset; gore?: boolean };
         if (saved.preset && saved.preset in PRESETS) this.preset = saved.preset;
+        this.gore = saved.gore === true;
       }
     } catch {
       /* storage unavailable */
     }
     const url = new URLSearchParams(location.search).get('preset') as GraphicsPreset | null;
     if (url && url in PRESETS) this.preset = url;
+    if (new URLSearchParams(location.search).has('gore')) this.gore = true;
     this.q = { ...PRESETS[this.preset] };
+  }
+
+  private save(): void {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ preset: this.preset, gore: this.gore }));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  setGore(on: boolean): void {
+    this.gore = on;
+    this.save();
   }
 
   setPreset(preset: GraphicsPreset): void {
     this.preset = preset;
     this.q = { ...PRESETS[preset] };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ preset }));
-    } catch {
-      /* ignore */
-    }
+    this.save();
     events.emit('settings:preset', { preset });
   }
 }

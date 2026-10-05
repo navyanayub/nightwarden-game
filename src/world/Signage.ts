@@ -266,6 +266,19 @@ export class SignAtlas {
     return this.slotUV(slot);
   }
 
+  private custom = new Map<string, number>();
+
+  /** A sign drawn in the brand style, allocated on first use (hospital, precinct, warehouses). */
+  customUV(key: string, b: Brand): [number, number, number, number] {
+    let slot = this.custom.get(key);
+    if (slot === undefined) {
+      slot = this.drawBrand(this.canvas.getContext('2d')!, b);
+      this.custom.set(key, slot);
+      this.texture.needsUpdate = true;
+    }
+    return this.slotUV(slot);
+  }
+
   brandUV(i: number): [number, number, number, number] {
     return this.slotUV(this.brandSlot[i % this.brandSlot.length]);
   }

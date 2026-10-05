@@ -10,7 +10,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { MeshBuilder } from '../world/MeshBuilder';
 import { buildBody, buildWheel, LAMP_KEYS, PART_COLORS, SPECS, smoothNormals, type VehicleKind } from '../vehicles/VehicleModels';
 
-export const RENDER_KINDS: VehicleKind[] = ['compact', 'hatchback', 'sedan', 'estate', 'suv', 'pickup', 'van', 'taxi', 'bus'];
+export const RENDER_KINDS: VehicleKind[] = ['compact', 'hatchback', 'sedan', 'estate', 'suv', 'pickup', 'van', 'taxi', 'bus', 'police', 'tactical'];
 
 export interface CarRenderState {
   kind: number;
@@ -178,11 +178,11 @@ export class TrafficRender {
     const trimG = colored(trimList)!;
     const lampG = colored(lampList)!;
     const wmb = new MeshBuilder();
-    buildWheel(spec.wheelRadius, wmb, kind === 'bus' || kind === 'van', true);
+    buildWheel(spec.wheelRadius, wmb, kind === 'bus' || kind === 'van' || kind === 'tactical', true);
     const wheelList: { g: THREE.BufferGeometry; c: [number, number, number] }[] = [];
     for (const [k, b] of wmb.buffers) wheelList.push({ g: b.toGeometry(), c: PART_COLORS[k] ?? [0.1, 0.1, 0.1] });
     const wheelG = colored(wheelList)!;
-    const cap = kind === 'bus' ? 8 : this.capacity;
+    const cap = kind === 'bus' ? 8 : kind === 'police' ? 24 : kind === 'tactical' ? 8 : this.capacity;
     const mk = (g: THREE.BufferGeometry, mat: THREE.Material, n: number, shadow: boolean) => {
       const im = new THREE.InstancedMesh(g, mat, n);
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
